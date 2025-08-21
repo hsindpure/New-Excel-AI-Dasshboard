@@ -1,18 +1,28 @@
-// backend/services/calculator.js
+// backend/services/calculator.js - Optimized for large datasets
 
 class Calculator {
   
-    calculateKPIs(data, schema, kpiDefinitions) {
+    constructor() {
+      this.maxChartDataPoints = 1000; // Limit data points for performance
+      this.aggregationCache = new Map();
+    }
+  
+    calculateKPIs(data, schema, kpiDefinitions, dataLimit = null) {
+      // Use limited dataset for KPI calculations if specified
+      const workingData = dataLimit ? data.slice(0, dataLimit) : data;
       const kpis = [];
       
       kpiDefinitions.forEach(def => {
         try {
-          const kpi = this.calculateSingleKPI(data, def);
+          const kpi = this.calculateSingleKPI(workingData, def);
           if (kpi) {
+            // Add metadata about data limitation
+            kpi.dataPoints = workingData.length;
+            kpi.isLimited = dataLimit && data.length > dataLimit;
             kpis.push(kpi);
           }
         } catch (error) {
-          console.warn(`⚠️ Error calculating KPI ${def.name}:`, error.message);
+          console.warn(`Warning calculating KPI ${def.name}:`, error.message);
         }
       });
       
@@ -20,43 +30,40 @@ class Calculator {
     }
     
     calculateSingleKPI(data, definition) {
+      const cacheKey = `${definition.calculation}_${definition.column}_${data.length}`;
+      
+      // Check cache for expensive calculations
+      if (this.aggregationCache.has(cacheKey)) {
+        const cached = this.aggregationCache.get(cacheKey);
+        return {
+          ...cached,
+          name: definition.name,
+          format: definition.format
+        };
+      }
+  
       let value = 0;
       
       switch (definition.calculation.toLowerCase()) {
         case 'sum':
-          value = data.reduce((sum, row) => {
-            const val = parseFloat(row[definition.column]) || 0;
-            return sum + val;
-          }, 0);
+          value = this.calculateSum(data, definition.column);
           break;
           
         case 'avg':
         case 'average':
-          const sum = data.reduce((sum, row) => {
-            const val = parseFloat(row[definition.column]) || 0;
-            return sum + val;
-          }, 0);
-          value = data.length > 0 ? sum / data.length : 0;
+          value = this.calculateAverage(data, definition.column);
           break;
           
         case 'count':
-          if (definition.column === '*') {
-            value = data.length;
-          } else {
-            value = data.filter(row => 
-              row[definition.column] !== null && 
-              row[definition.column] !== undefined && 
-              row[definition.column] !== ''
-            ).length;
-          }
+          value = this.calculateCount(data, definition.column);
           break;
           
         case 'max':
-          value = Math.max(...data.map(row => parseFloat(row[definition.column]) || 0));
+          value = this.calculateMax(data, definition.column);
           break;
           
         case 'min':
-          value = Math.min(...data.map(row => parseFloat(row[definition.column]) || 0));
+          value = this.calculateMin(data, definition.column);
           break;
           
         default:
@@ -64,14 +71,77 @@ class Calculator {
           return null;
       }
       
-      return {
-        name: definition.name,
+      const result = {
         value: value,
         formattedValue: this.formatValue(value, definition.format),
         calculation: definition.calculation,
-        column: definition.column,
+        column: definition.column
+      };
+  
+      // Cache result for performance
+      this.aggregationCache.set(cacheKey, result);
+      
+      return {
+        name: definition.name,
+        ...result,
         format: definition.format
       };
+    }
+  
+    // Optimized calculation methods
+    calculateSum(data, column) {
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const val = parseFloat(data[i][column]);
+        if (!isNaN(val)) sum += val;
+      }
+      return sum;
+    }
+  
+    calculateAverage(data, column) {
+      let sum = 0;
+      let count = 0;
+      for (let i = 0; i < data.length; i++) {
+        const val = parseFloat(data[i][column]);
+        if (!isNaN(val)) {
+          sum += val;
+          count++;
+        }
+      }
+      return count > 0 ? sum / count : 0;
+    }
+  
+    calculateCount(data, column) {
+      if (column === '*') {
+        return data.length;
+      }
+      
+      let count = 0;
+      for (let i = 0; i < data.length; i++) {
+        const val = data[i][column];
+        if (val !== null && val !== undefined && val !== '') {
+          count++;
+        }
+      }
+      return count;
+    }
+  
+    calculateMax(data, column) {
+      let max = -Infinity;
+      for (let i = 0; i < data.length; i++) {
+        const val = parseFloat(data[i][column]);
+        if (!isNaN(val) && val > max) max = val;
+      }
+      return max === -Infinity ? 0 : max;
+    }
+  
+    calculateMin(data, column) {
+      let min = Infinity;
+      for (let i = 0; i < data.length; i++) {
+        const val = parseFloat(data[i][column]);
+        if (!isNaN(val) && val < min) min = val;
+      }
+      return min === Infinity ? 0 : min;
     }
     
     formatValue(value, format) {
@@ -107,12 +177,14 @@ class Calculator {
       }
     }
     
-    generateChartConfigs(data, schema, chartDefinitions) {
+    generateChartConfigs(data, schema, chartDefinitions, dataLimit = null) {
+      // Apply data limit for performance
+      const workingData = dataLimit ? data.slice(0, dataLimit) : data;
       const charts = [];
       
       chartDefinitions.forEach((def, index) => {
         try {
-          const chartData = this.prepareChartData(data, def);
+          const chartData = this.prepareOptimizedChartData(workingData, def);
           if (chartData && chartData.length > 0) {
             charts.push({
               id: `chart_${index}`,
@@ -121,18 +193,21 @@ class Calculator {
               data: chartData,
               measures: def.measures,
               dimensions: def.dimensions,
-              config: this.generateChartOption(def.type, chartData, def.measures, def.dimensions)
+              config: this.generateChartOption(def.type, chartData, def.measures, def.dimensions),
+              dataPoints: workingData.length,
+              isLimited: dataLimit && data.length > dataLimit,
+              optimizedForLargeData: def.optimizedForLargeData || false
             });
           }
         } catch (error) {
-          console.warn(`⚠️ Error generating chart ${def.title}:`, error.message);
+          console.warn(`Warning generating chart ${def.title}:`, error.message);
         }
       });
       
       return charts;
     }
     
-    prepareChartData(data, chartDef) {
+    prepareOptimizedChartData(data, chartDef) {
       const { measures, dimensions, type } = chartDef;
       
       if (!measures || !dimensions || measures.length === 0 || dimensions.length === 0) {
@@ -142,47 +217,134 @@ class Calculator {
       const primaryDimension = dimensions[0];
       const primaryMeasure = measures[0];
       
-      // Group data by primary dimension
-      const grouped = this.groupByDimension(data, primaryDimension);
+      // Use efficient grouping for large datasets
+      const grouped = this.optimizedGroupBy(data, primaryDimension);
       
-      // Calculate aggregated values
+      // Calculate aggregated values with performance optimization
       const chartData = Object.keys(grouped).map(key => {
         const group = grouped[key];
         const dataPoint = { [primaryDimension]: key };
         
         measures.forEach(measure => {
-          const values = group.map(row => parseFloat(row[measure]) || 0);
-          dataPoint[measure] = values.reduce((sum, val) => sum + val, 0);
+          dataPoint[measure] = this.calculateSum(group, measure);
         });
         
         return dataPoint;
       });
       
-      // Sort data for better visualization
-      return this.sortChartData(chartData, primaryMeasure, type);
+      // Limit data points for chart performance
+      const sortedData = this.sortChartData(chartData, primaryMeasure, type);
+      
+      // Apply intelligent data reduction for large datasets
+      return this.reduceDataForVisualization(sortedData, type);
     }
-    
-    groupByDimension(data, dimension) {
-      return data.reduce((groups, row) => {
-        const key = row[dimension] || 'Unknown';
+  
+    optimizedGroupBy(data, dimension) {
+      const groups = {};
+      
+      for (let i = 0; i < data.length; i++) {
+        const key = data[i][dimension] || 'Unknown';
         if (!groups[key]) {
           groups[key] = [];
         }
-        groups[key].push(row);
-        return groups;
-      }, {});
+        groups[key].push(data[i]);
+      }
+      
+      return groups;
+    }
+  
+    reduceDataForVisualization(data, chartType) {
+      // Apply different reduction strategies based on chart type and data size
+      if (data.length <= this.maxChartDataPoints) {
+        return data;
+      }
+  
+      console.log(`Reducing ${data.length} data points to ${this.maxChartDataPoints} for ${chartType} chart`);
+  
+      switch (chartType) {
+        case 'pie':
+          // For pie charts, keep top categories and group others
+          return this.reduceForPieChart(data);
+        
+        case 'line':
+        case 'area':
+          // For time series, use intelligent sampling
+          return this.reduceForTimeSeries(data);
+        
+        case 'bar':
+        default:
+          // For bar charts, keep top values
+          return this.reduceForBarChart(data);
+      }
+    }
+  
+    reduceForPieChart(data) {
+      // Keep top 8 categories, group the rest as "Others"
+      const maxCategories = 8;
+      
+      if (data.length <= maxCategories) {
+        return data;
+      }
+  
+      const sorted = data.sort((a, b) => {
+        const aVal = Object.values(a).find(v => typeof v === 'number') || 0;
+        const bVal = Object.values(b).find(v => typeof v === 'number') || 0;
+        return bVal - aVal;
+      });
+  
+      const topCategories = sorted.slice(0, maxCategories - 1);
+      const otherCategories = sorted.slice(maxCategories - 1);
+  
+      if (otherCategories.length > 0) {
+        // Sum up "Others" category
+        const othersSum = otherCategories.reduce((sum, item) => {
+          const value = Object.values(item).find(v => typeof v === 'number') || 0;
+          return sum + value;
+        }, 0);
+  
+        const dimensionKey = Object.keys(data[0]).find(k => typeof data[0][k] !== 'number');
+        const measureKey = Object.keys(data[0]).find(k => typeof data[0][k] === 'number');
+  
+        topCategories.push({
+          [dimensionKey]: 'Others',
+          [measureKey]: othersSum
+        });
+      }
+  
+      return topCategories;
+    }
+  
+    reduceForTimeSeries(data) {
+      // Intelligent sampling for time series data
+      const targetPoints = Math.min(this.maxChartDataPoints, data.length);
+      const step = Math.ceil(data.length / targetPoints);
+      
+      const reduced = [];
+      for (let i = 0; i < data.length; i += step) {
+        reduced.push(data[i]);
+      }
+      
+      return reduced;
+    }
+  
+    reduceForBarChart(data) {
+      // Keep top N categories for bar charts
+      const maxBars = Math.min(50, this.maxChartDataPoints);
+      
+      if (data.length <= maxBars) {
+        return data;
+      }
+  
+      return data.slice(0, maxBars);
     }
     
     sortChartData(data, primaryMeasure, chartType) {
-      // Different sorting strategies for different chart types
       switch (chartType) {
         case 'pie':
-          // Sort pie charts by value (descending)
           return data.sort((a, b) => (b[primaryMeasure] || 0) - (a[primaryMeasure] || 0));
           
         case 'line':
         case 'area':
-          // Sort line/area charts by dimension (usually time-based)
           return data.sort((a, b) => {
             const aKey = Object.keys(a).find(k => k !== primaryMeasure);
             const bKey = Object.keys(b).find(k => k !== primaryMeasure);
@@ -191,13 +353,11 @@ class Calculator {
           
         case 'bar':
         default:
-          // Sort bar charts by value (descending) for better readability
           return data.sort((a, b) => (b[primaryMeasure] || 0) - (a[primaryMeasure] || 0));
       }
     }
     
     generateChartOption(type, data, measures, dimensions) {
-      // This generates configuration for Recharts components
       const primaryMeasure = measures[0];
       const primaryDimension = dimensions[0];
       
@@ -252,57 +412,162 @@ class Calculator {
       }
     }
     
-    applyFilters(data, filters) {
+    applyFilters(data, filters, dataLimit = null) {
       if (!filters || Object.keys(filters).length === 0) {
-        return data;
+        return dataLimit ? data.slice(0, dataLimit) : data;
       }
       
-      return data.filter(row => {
-        return Object.keys(filters).every(filterKey => {
+      // Optimize filtering for large datasets
+      const filtered = [];
+      
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        let matchesAllFilters = true;
+        
+        // Check each filter
+        for (const filterKey in filters) {
           const filterValues = filters[filterKey];
           
-          // Skip if no filter values selected
           if (!filterValues || filterValues.length === 0) {
-            return true;
+            continue;
           }
           
           const rowValue = row[filterKey];
           
-          // Handle null/undefined values
           if (rowValue === null || rowValue === undefined) {
-            return filterValues.includes('null') || filterValues.includes('undefined');
+            if (!filterValues.includes('null') && !filterValues.includes('undefined')) {
+              matchesAllFilters = false;
+              break;
+            }
+          } else {
+            if (!filterValues.includes(String(rowValue))) {
+              matchesAllFilters = false;
+              break;
+            }
           }
+        }
+        
+        if (matchesAllFilters) {
+          filtered.push(row);
           
-          // Convert to string for comparison
-          return filterValues.includes(String(rowValue));
-        });
-      });
+          // Apply data limit during filtering for performance
+          if (dataLimit && filtered.length >= dataLimit) {
+            break;
+          }
+        }
+      }
+      
+      return filtered;
     }
     
-    getFilterOptions(data, schema) {
+    getFilterOptions(data, schema, sampleSize = 10000) {
       const filterOptions = {};
       
-      // Only create filters for dimensions (categorical data)
+      // Use sample for large datasets to improve performance
+      const sampleData = data.length > sampleSize ? data.slice(0, sampleSize) : data;
+      
       schema.dimensions.forEach(dimension => {
-        const values = [...new Set(
-          data.map(row => row[dimension.name])
-            .filter(val => val !== null && val !== undefined)
-            .map(val => String(val))
-        )].sort();
+        const uniqueValues = new Set();
+        
+        // Collect unique values efficiently
+        for (let i = 0; i < sampleData.length; i++) {
+          const value = sampleData[i][dimension.name];
+          if (value !== null && value !== undefined) {
+            uniqueValues.add(String(value));
+            
+            // Limit options for performance
+            if (uniqueValues.size > 100) break;
+          }
+        }
+        
+        const values = Array.from(uniqueValues).sort();
         
         // Only include dimensions with reasonable number of unique values
-        if (values.length > 1 && values.length <= 50) {
+        if (values.length > 1 && values.length <= 100) {
           filterOptions[dimension.name] = {
             label: this.formatColumnName(dimension.name),
             options: values.map(value => ({
               label: value,
               value: value
-            }))
+            })),
+            isSampled: data.length > sampleSize
           };
         }
       });
       
       return filterOptions;
+    }
+  
+    // New method for data limit options
+    getDataLimitOptions() {
+      return [
+        { label: 'Top 50 Records', value: 50 },
+        { label: 'Top 100 Records', value: 100 },
+        { label: 'Top 1,000 Records', value: 1000 },
+        { label: 'Top 10,000 Records', value: 10000 },
+        { label: 'All Data', value: null }
+      ];
+    }
+  
+    // Method to get optimized data based on limit
+    getOptimizedData(data, dataLimit) {
+      if (!dataLimit || dataLimit >= data.length) {
+        return {
+          data: data,
+          isLimited: false,
+          totalRecords: data.length,
+          displayedRecords: data.length
+        };
+      }
+  
+      return {
+        data: data.slice(0, dataLimit),
+        isLimited: true,
+        totalRecords: data.length,
+        displayedRecords: Math.min(dataLimit, data.length)
+      };
+    }
+  
+    // Clear cache periodically to prevent memory leaks
+    clearCache() {
+      this.aggregationCache.clear();
+      console.log('Calculator cache cleared for memory optimization');
+    }
+  
+    // Method to generate single chart config for custom charts
+    generateSingleChartConfig(data, schema, chartCombination, dataLimit = null) {
+      try {
+        const workingData = dataLimit ? data.slice(0, dataLimit) : data;
+        
+        const chartData = this.prepareOptimizedChartData(workingData, chartCombination);
+        
+        if (!chartData || chartData.length === 0) {
+          throw new Error('No data available for chart generation');
+        }
+  
+        const chartConfig = {
+          id: chartCombination.id || `chart_${Date.now()}`,
+          title: chartCombination.title || `${chartCombination.type.charAt(0).toUpperCase() + chartCombination.type.slice(1)} Chart`,
+          type: chartCombination.type,
+          data: chartData,
+          measures: chartCombination.measures,
+          dimensions: chartCombination.dimensions,
+          config: this.generateChartOption(chartCombination.type, chartData, chartCombination.measures, chartCombination.dimensions),
+          isCustom: chartCombination.isCustom || false,
+          aiSuggestion: chartCombination.aiSuggestion,
+          insights: chartCombination.insights || [],
+          isAiGenerated: chartCombination.isAiGenerated || false,
+          dataPoints: workingData.length,
+          isLimited: dataLimit && data.length > dataLimit,
+          optimizedForLargeData: true
+        };
+  
+        return chartConfig;
+  
+      } catch (error) {
+        console.error('Error generating single chart config:', error);
+        throw error;
+      }
     }
     
     formatColumnName(name) {
@@ -310,518 +575,6 @@ class Calculator {
         .replace(/[_-]/g, ' ')
         .replace(/\b\w/g, l => l.toUpperCase());
     }
-    
-    // Statistical calculations for advanced KPIs
-    calculateStandardDeviation(data, column) {
-      const values = data.map(row => parseFloat(row[column]) || 0);
-      const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
-      const squaredDiffs = values.map(val => Math.pow(val - mean, 2));
-      const avgSquaredDiff = squaredDiffs.reduce((sum, val) => sum + val, 0) / values.length;
-      return Math.sqrt(avgSquaredDiff);
-    }
-    
-    calculateMedian(data, column) {
-      const values = data.map(row => parseFloat(row[column]) || 0).sort((a, b) => a - b);
-      const mid = Math.floor(values.length / 2);
-      return values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
-    }
-    
-    calculatePercentile(data, column, percentile) {
-      const values = data.map(row => parseFloat(row[column]) || 0).sort((a, b) => a - b);
-      const index = (percentile / 100) * (values.length - 1);
-      const lower = Math.floor(index);
-      const upper = Math.ceil(index);
-      const weight = index % 1;
-      
-      if (lower === upper) {
-        return values[lower];
-      }
-      
-      return values[lower] * (1 - weight) + values[upper] * weight;
-    }
-    
-    // Growth rate calculations
-    calculateGrowthRate(data, dateColumn, valueColumn) {
-      // Sort by date
-      const sortedData = data
-        .filter(row => row[dateColumn] && row[valueColumn])
-        .sort((a, b) => new Date(a[dateColumn]) - new Date(b[dateColumn]));
-      
-      if (sortedData.length < 2) return 0;
-      
-      const firstValue = parseFloat(sortedData[0][valueColumn]);
-      const lastValue = parseFloat(sortedData[sortedData.length - 1][valueColumn]);
-      
-      if (firstValue === 0) return 0;
-      
-      return ((lastValue - firstValue) / firstValue) * 100;
-    }
-    
-    // Data quality assessment
-    assessDataQuality(data, schema) {
-      const quality = {
-        completeness: {},
-        consistency: {},
-        validity: {},
-        overall: 0
-      };
-      
-      schema.columns.forEach(column => {
-        const values = data.map(row => row[column.name]);
-        const nonNullValues = values.filter(val => val !== null && val !== undefined && val !== '');
-        
-        quality.completeness[column.name] = (nonNullValues.length / data.length) * 100;
-      });
-      
-      // Calculate overall quality score
-      const completenessScores = Object.values(quality.completeness);
-      quality.overall = completenessScores.reduce((sum, score) => sum + score, 0) / completenessScores.length;
-      
-      return quality;
-    }
-
-
-
-    // backend/services/calculator.js - Add these methods to existing Calculator class
-
-// Add this method to the existing Calculator class
-
-generateSingleChartConfig(data, schema, chartCombination) {
-    try {
-      console.log('📊 Generating single chart config for:', chartCombination);
-      
-      const chartData = this.prepareChartData(data, chartCombination);
-      
-      if (!chartData || chartData.length === 0) {
-        throw new Error('No data available for chart generation');
-      }
-  
-      const chartConfig = {
-        id: chartCombination.id || `chart_${Date.now()}`,
-        title: chartCombination.title || `${chartCombination.type.charAt(0).toUpperCase() + chartCombination.type.slice(1)} Chart`,
-        type: chartCombination.type,
-        data: chartData,
-        measures: chartCombination.measures,
-        dimensions: chartCombination.dimensions,
-        config: this.generateChartOption(chartCombination.type, chartData, chartCombination.measures, chartCombination.dimensions),
-        isCustom: chartCombination.isCustom || false,
-        aiSuggestion: chartCombination.aiSuggestion,
-        insights: chartCombination.insights || [],
-        isAiGenerated: chartCombination.isAiGenerated || false
-      };
-  
-      console.log('✅ Generated chart config:', chartConfig.title);
-      return chartConfig;
-  
-    } catch (error) {
-      console.error('❌ Error generating single chart config:', error);
-      throw error;
-    }
-  }
-  
-  // Enhanced chart data preparation for custom combinations
-  prepareCustomChartData(data, measures, dimensions, chartType) {
-    try {
-      console.log(`📈 Preparing custom chart data for ${chartType}:`, { measures, dimensions });
-  
-      if (!measures || measures.length === 0 || !dimensions || dimensions.length === 0) {
-        throw new Error('Measures and dimensions are required');
-      }
-  
-      const primaryDimension = dimensions[0];
-      
-      // Group data by primary dimension
-      const grouped = this.groupByDimension(data, primaryDimension);
-      
-      // Calculate aggregated values for each group
-      const chartData = Object.keys(grouped).map(key => {
-        const group = grouped[key];
-        const dataPoint = { [primaryDimension]: key };
-        
-        // Calculate values for each measure
-        measures.forEach(measure => {
-          const values = group.map(row => parseFloat(row[measure]) || 0);
-          
-          // Different aggregation strategies based on chart type
-          switch (chartType) {
-            case 'line':
-            case 'area':
-              // For time-series, use sum or average
-              dataPoint[measure] = values.reduce((sum, val) => sum + val, 0);
-              break;
-            case 'pie':
-              // For pie charts, use sum
-              dataPoint[measure] = values.reduce((sum, val) => sum + val, 0);
-              break;
-            case 'scatter':
-              // For scatter plots, use average
-              dataPoint[measure] = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0;
-              break;
-            default:
-              // Default to sum
-              dataPoint[measure] = values.reduce((sum, val) => sum + val, 0);
-          }
-        });
-        
-        return dataPoint;
-      });
-  
-      // Sort data based on chart type requirements
-      const sortedData = this.sortCustomChartData(chartData, measures[0], chartType, primaryDimension);
-      
-      console.log(`✅ Prepared ${sortedData.length} data points for ${chartType} chart`);
-      return sortedData;
-  
-    } catch (error) {
-      console.error('❌ Error preparing custom chart data:', error);
-      throw error;
-    }
-  }
-  
-  sortCustomChartData(data, primaryMeasure, chartType, primaryDimension) {
-    switch (chartType) {
-      case 'pie':
-        // Sort pie charts by value (descending) for better visual hierarchy
-        return data.sort((a, b) => (b[primaryMeasure] || 0) - (a[primaryMeasure] || 0));
-        
-      case 'line':
-      case 'area':
-        // Sort line/area charts by dimension (usually for time-series or ordered data)
-        return data.sort((a, b) => {
-          const aVal = a[primaryDimension];
-          const bVal = b[primaryDimension];
-          
-          // Try to sort numerically if possible, otherwise alphabetically
-          if (!isNaN(aVal) && !isNaN(bVal)) {
-            return parseFloat(aVal) - parseFloat(bVal);
-          }
-          
-          // For date strings, try date parsing
-          const aDate = new Date(aVal);
-          const bDate = new Date(bVal);
-          if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
-            return aDate - bDate;
-          }
-          
-          // Default to string comparison
-          return String(aVal).localeCompare(String(bVal));
-        });
-        
-      case 'bar':
-      case 'scatter':
-      default:
-        // Sort bar charts by value (descending) for better readability
-        return data.sort((a, b) => (b[primaryMeasure] || 0) - (a[primaryMeasure] || 0));
-    }
-  }
-  
-  // Enhanced chart option generation for custom charts
-  generateCustomChartOption(type, data, measures, dimensions) {
-    const primaryMeasure = measures[0];
-    const primaryDimension = dimensions[0];
-    
-    const baseConfig = {
-      data: data,
-      margin: { top: 20, right: 30, left: 20, bottom: 5 }
-    };
-    
-    switch (type) {
-      case 'bar':
-        return {
-          ...baseConfig,
-          type: 'BarChart',
-          dataKey: primaryMeasure,
-          xAxisKey: primaryDimension,
-          bars: measures.map(measure => ({
-            dataKey: measure,
-            name: this.formatColumnName(measure),
-            fill: this.getColorForMeasure(measure, measures)
-          }))
-        };
-        
-      case 'line':
-        return {
-          ...baseConfig,
-          type: 'LineChart',
-          dataKey: primaryMeasure,
-          xAxisKey: primaryDimension,
-          lines: measures.map(measure => ({
-            dataKey: measure,
-            name: this.formatColumnName(measure),
-            stroke: this.getColorForMeasure(measure, measures)
-          }))
-        };
-        
-      case 'area':
-        return {
-          ...baseConfig,
-          type: 'AreaChart',
-          dataKey: primaryMeasure,
-          xAxisKey: primaryDimension,
-          areas: measures.map(measure => ({
-            dataKey: measure,
-            name: this.formatColumnName(measure),
-            fill: this.getColorForMeasure(measure, measures)
-          }))
-        };
-        
-      case 'pie':
-        return {
-          ...baseConfig,
-          type: 'PieChart',
-          dataKey: primaryMeasure,
-          nameKey: primaryDimension,
-          showLabel: true,
-          showLegend: true
-        };
-        
-      case 'scatter':
-        return {
-          ...baseConfig,
-          type: 'ScatterChart',
-          dataKey: primaryMeasure,
-          xAxisKey: primaryDimension,
-          yAxisKey: measures[1] || primaryMeasure // Use second measure if available
-        };
-        
-      default:
-        return baseConfig;
-    }
-  }
-  
-  getColorForMeasure(measure, allMeasures) {
-    const colors = ['#1890ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#eb2f96', '#13c2c2', '#a0d911'];
-    const index = allMeasures.indexOf(measure);
-    return colors[index % colors.length];
-  }
-  
-  // Analyze chart combination effectiveness
-  analyzeChartCombination(data, measures, dimensions, chartType) {
-    const analysis = {
-      dataPoints: data.length,
-      effectiveness: 'medium',
-      recommendations: [],
-      warnings: []
-    };
-  
-    // Analyze based on chart type and data characteristics
-    switch (chartType) {
-      case 'pie':
-        const uniqueDimensions = new Set(data.map(row => row[dimensions[0]])).size;
-        if (uniqueDimensions > 10) {
-          analysis.warnings.push('Too many categories for pie chart - consider bar chart');
-          analysis.effectiveness = 'low';
-        } else if (uniqueDimensions <= 5) {
-          analysis.effectiveness = 'high';
-          analysis.recommendations.push('Perfect for showing proportional relationships');
-        }
-        break;
-        
-      case 'line':
-        // Check if dimension is suitable for line chart (time-based or ordered)
-        const isTimeOrOrdered = this.isTimeBasedDimension(data, dimensions[0]);
-        if (isTimeOrOrdered) {
-          analysis.effectiveness = 'high';
-          analysis.recommendations.push('Excellent for showing trends over time');
-        } else {
-          analysis.warnings.push('Consider bar chart for non-temporal categorical data');
-          analysis.effectiveness = 'medium';
-        }
-        break;
-        
-      case 'scatter':
-        if (measures.length >= 2) {
-          analysis.effectiveness = 'high';
-          analysis.recommendations.push('Great for exploring correlations between measures');
-        } else {
-          analysis.warnings.push('Scatter plot works best with two numeric measures');
-          analysis.effectiveness = 'low';
-        }
-        break;
-        
-      case 'bar':
-        analysis.effectiveness = 'high';
-        analysis.recommendations.push('Versatile chart type suitable for most categorical comparisons');
-        break;
-        
-      case 'area':
-        if (measures.length > 1) {
-          analysis.effectiveness = 'high';
-          analysis.recommendations.push('Great for showing cumulative values and part-to-whole relationships');
-        } else {
-          analysis.effectiveness = 'medium';
-          analysis.recommendations.push('Consider adding more measures for better area chart utilization');
-        }
-        break;
-    }
-  
-    // General data quality checks
-    if (data.length < 3) {
-      analysis.warnings.push('Very limited data points - results may not be meaningful');
-      analysis.effectiveness = 'low';
-    } else if (data.length > 50) {
-      analysis.recommendations.push('Rich dataset - consider filtering for clearer visualization');
-    }
-  
-    return analysis;
-  }
-  
-  isTimeBasedDimension(data, dimension) {
-    // Check if dimension values look like dates or have natural ordering
-    const sampleValues = data.slice(0, 10).map(row => row[dimension]);
-    
-    // Check for date patterns
-    const datePattern = /^\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}|\d{4}\/\d{2}\/\d{2}/;
-    const dateCount = sampleValues.filter(val => datePattern.test(String(val))).length;
-    
-    if (dateCount > sampleValues.length * 0.5) {
-      return true;
-    }
-    
-    // Check for numeric ordering (years, months, etc.)
-    const numericValues = sampleValues.map(val => parseFloat(val)).filter(val => !isNaN(val));
-    if (numericValues.length === sampleValues.length) {
-      return true; // All numeric values suggest ordering
-    }
-    
-    return false;
-  }
-  
-  // Validate custom chart configuration
-  validateCustomChartConfig(measures, dimensions, chartType, data) {
-    const validation = {
-      isValid: true,
-      errors: [],
-      warnings: [],
-      suggestions: []
-    };
-  
-    // Basic validation
-    if (!measures || measures.length === 0) {
-      validation.isValid = false;
-      validation.errors.push('At least one measure is required');
-    }
-  
-    if (!dimensions || dimensions.length === 0) {
-      validation.isValid = false;
-      validation.errors.push('At least one dimension is required');
-    }
-  
-    if (!chartType || !['bar', 'line', 'pie', 'area', 'scatter'].includes(chartType)) {
-      validation.isValid = false;
-      validation.errors.push('Invalid chart type specified');
-    }
-  
-    if (!data || data.length === 0) {
-      validation.isValid = false;
-      validation.errors.push('No data available for chart generation');
-    }
-  
-    // Chart-specific validations
-    if (validation.isValid) {
-      switch (chartType) {
-        case 'pie':
-          if (measures.length > 1) {
-            validation.warnings.push('Pie charts work best with a single measure');
-            validation.suggestions.push('Consider using a bar chart for multiple measures');
-          }
-          
-          const uniqueCategories = new Set(data.map(row => row[dimensions[0]])).size;
-          if (uniqueCategories > 12) {
-            validation.warnings.push('Too many categories for effective pie chart visualization');
-            validation.suggestions.push('Consider filtering data or using a bar chart');
-          }
-          break;
-  
-        case 'scatter':
-          if (measures.length < 2) {
-            validation.warnings.push('Scatter plots are most effective with two measures');
-            validation.suggestions.push('Add another measure for X-Y correlation analysis');
-          }
-          break;
-  
-        case 'line':
-          const isOrdered = this.isTimeBasedDimension(data, dimensions[0]);
-          if (!isOrdered) {
-            validation.warnings.push('Line charts work best with time-based or ordered dimensions');
-            validation.suggestions.push('Consider using a bar chart for categorical data');
-          }
-          break;
-      }
-    }
-  
-    return validation;
-  }
-  
-  // Generate chart metadata for custom charts
-  generateChartMetadata(measures, dimensions, chartType, data) {
-    const metadata = {
-      chartType,
-      measures: measures.map(measure => ({
-        name: measure,
-        displayName: this.formatColumnName(measure),
-        aggregation: 'sum',
-        dataType: 'number'
-      })),
-      dimensions: dimensions.map(dimension => ({
-        name: dimension,
-        displayName: this.formatColumnName(dimension),
-        cardinality: new Set(data.map(row => row[dimension])).size,
-        dataType: this.inferDimensionType(data, dimension)
-      })),
-      dataPoints: data.length,
-      createdAt: new Date().toISOString(),
-      complexity: this.calculateChartComplexity(measures, dimensions, data),
-      effectiveness: this.analyzeChartCombination(data, measures, dimensions, chartType)
-    };
-  
-    return metadata;
-  }
-  
-  inferDimensionType(data, dimension) {
-    const sampleValues = data.slice(0, 10).map(row => row[dimension]);
-    
-    // Check for dates
-    const datePattern = /^\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}/;
-    if (sampleValues.some(val => datePattern.test(String(val)))) {
-      return 'date';
-    }
-    
-    // Check for numbers
-    const numericCount = sampleValues.filter(val => !isNaN(parseFloat(val))).length;
-    if (numericCount === sampleValues.length) {
-      return 'number';
-    }
-    
-    return 'string';
-  }
-  
-  calculateChartComplexity(measures, dimensions, data) {
-    let complexity = 1;
-    
-    // More measures increase complexity
-    complexity += measures.length * 0.5;
-    
-    // More dimensions increase complexity
-    complexity += dimensions.length * 0.3;
-    
-    // More data points increase complexity
-    if (data.length > 100) complexity += 1;
-    if (data.length > 500) complexity += 1;
-    
-    // High cardinality dimensions increase complexity
-    dimensions.forEach(dimension => {
-      const cardinality = new Set(data.map(row => row[dimension])).size;
-      if (cardinality > 10) complexity += 0.5;
-      if (cardinality > 50) complexity += 1;
-    });
-    
-    // Classify complexity
-    if (complexity <= 2) return 'low';
-    if (complexity <= 4) return 'medium';
-    return 'high';
-  }
-  
   }
   
   module.exports = new Calculator();

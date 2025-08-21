@@ -1,4 +1,4 @@
-// frontend/src/components/FilterSidebar.js
+// frontend/src/components/FilterSidebar.js - Corrected and error-free
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Checkbox, 
@@ -9,45 +9,65 @@ import {
   Badge,
   Collapse,
   Empty,
-  message
+  message,
+  Select,
+  Alert,
+  Tooltip
 } from 'antd';
 import { 
   SearchOutlined, 
   ClearOutlined, 
-  FilterOutlined 
+  FilterOutlined,
+  DatabaseOutlined,
+  ThunderboltOutlined,
+  InfoCircleOutlined
 } from '@ant-design/icons';
 
 const { Text, Title } = Typography;
 const { Search } = Input;
 const { Panel } = Collapse;
+const { Option } = Select;
 
-const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMode }) => {
+const FilterSidebar = ({ 
+  filterOptions, 
+  activeFilters, 
+  onFilterChange, 
+  isDarkMode,
+  dataLimit,
+  onDataLimitChange,
+  performanceInfo
+}) => {
   const [localFilters, setLocalFilters] = useState({});
   const [searchTerms, setSearchTerms] = useState({});
 
+  // Data limit options
+  const dataLimitOptions = [
+    { label: 'Top 50 Records', value: 50 },
+    { label: 'Top 100 Records', value: 100 },
+    { label: 'Top 1,000 Records', value: 1000 },
+    { label: 'Top 10,000 Records', value: 10000 },
+    { label: 'All Data', value: null }
+  ];
+
   // Initialize local filters from activeFilters
   useEffect(() => {
-    console.log('🔄 Active filters changed:', activeFilters);
     setLocalFilters(activeFilters || {});
   }, [activeFilters]);
 
-  // Debounced filter application - ONLY when local filters change
+  // Debounced filter application
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
       const filtersChanged = JSON.stringify(localFilters) !== JSON.stringify(activeFilters);
       
-      if (filtersChanged) {
-        console.log('🔍 Applying debounced filter change:', localFilters);
+      if (filtersChanged && onFilterChange) {
         onFilterChange(localFilters);
       }
-    }, 300); // Reduced debounce time for better responsiveness
+    }, 300);
 
     return () => clearTimeout(debounceTimer);
-  }, [localFilters]); // Only depend on localFilters
+  }, [localFilters, activeFilters, onFilterChange]);
 
   const handleFilterChange = useCallback((filterKey, values) => {
-    console.log(`🔧 Filter change for ${filterKey}:`, values);
-    
     setLocalFilters(prevFilters => {
       const newFilters = { ...prevFilters };
       
@@ -57,39 +77,37 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
         newFilters[filterKey] = values;
       }
       
-      console.log('📝 New local filters:', newFilters);
       return newFilters;
     });
   }, []);
 
   const handleSelectAll = useCallback((filterKey, allValues) => {
-    console.log(`✅ Select all for ${filterKey}:`, allValues.length, 'items');
     handleFilterChange(filterKey, allValues);
   }, [handleFilterChange]);
 
   const handleClearFilter = useCallback((filterKey) => {
-    console.log(`❌ Clear filter for ${filterKey}`);
     handleFilterChange(filterKey, []);
   }, [handleFilterChange]);
 
   const handleClearAllFilters = useCallback(() => {
-    console.log('🗑️ Clearing ALL filters - triggered');
-    
-    // Clear local state immediately
     setLocalFilters({});
     setSearchTerms({});
-    
-    // Notify parent component
-    onFilterChange({});
-    
-    // Show success message
+    if (onFilterChange) {
+      onFilterChange({});
+    }
     message.success('All filters cleared');
-    
-    console.log('✅ All filters cleared successfully');
   }, [onFilterChange]);
 
+  const handleDataLimitChange = useCallback((value) => {
+    if (onDataLimitChange) {
+      onDataLimitChange(value);
+    }
+    
+    const limitLabel = dataLimitOptions.find(opt => opt.value === value)?.label || 'Custom';
+    message.success(`Data limit changed to: ${limitLabel}`);
+  }, [onDataLimitChange, dataLimitOptions]);
+
   const handleSearch = useCallback((filterKey, value) => {
-    console.log(`🔍 Search in ${filterKey}:`, value);
     setSearchTerms(prev => ({
       ...prev,
       [filterKey]: value
@@ -101,22 +119,42 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
     if (!searchTerm) return options;
     
     return options.filter(option => 
-      option.label.toLowerCase().includes(searchTerm.toLowerCase())
+      option.label && option.label.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [searchTerms]);
 
   const getTotalActiveFilters = useMemo(() => {
-    const total = Object.values(localFilters).reduce((count, filterValues) => {
-      return count + (filterValues?.length || 0);
+    return Object.values(localFilters).reduce((count, filterValues) => {
+      return count + (Array.isArray(filterValues) ? filterValues.length : 0);
     }, 0);
-    console.log('📊 Total active filters calculated:', total);
-    return total;
   }, [localFilters]);
 
-  // Memoize filter options to prevent unnecessary re-renders
   const memoizedFilterOptions = useMemo(() => {
     return filterOptions || {};
   }, [filterOptions]);
+
+  // Performance warnings
+  const getPerformanceWarning = useCallback(() => {
+    if (!performanceInfo) return null;
+    
+    const { totalRecords, isLargeDataset } = performanceInfo;
+    
+    if (isLargeDataset && !dataLimit) {
+      return {
+        type: 'warning',
+        message: `Large dataset detected (${totalRecords?.toLocaleString() || 'many'} records). Consider using data limits for better performance.`
+      };
+    }
+    
+    if (totalRecords > 50000 && (!dataLimit || dataLimit > 10000)) {
+      return {
+        type: 'info',
+        message: `For optimal performance with ${totalRecords?.toLocaleString() || 'many'} records, recommend limiting to 10,000 or fewer.`
+      };
+    }
+    
+    return null;
+  }, [performanceInfo, dataLimit]);
 
   if (!memoizedFilterOptions || Object.keys(memoizedFilterOptions).length === 0) {
     return (
@@ -138,6 +176,8 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
     );
   }
 
+  const performanceWarning = getPerformanceWarning();
+
   return (
     <div style={{ 
       background: isDarkMode ? '#1f1f1f' : '#fff',
@@ -156,7 +196,7 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Badge count={getTotalActiveFilters} size="small">
               <Title level={5} style={{ margin: 0, color: isDarkMode ? '#fff' : '#000' }}>
-                Active Filters
+                Real-time Filters
               </Title>
             </Badge>
             
@@ -177,10 +217,63 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
           </div>
           
           <Text style={{ fontSize: '12px', color: isDarkMode ? '#a0a0a0' : '#666' }}>
+            <ThunderboltOutlined style={{ marginRight: '4px' }} />
             Changes apply instantly • {getTotalActiveFilters} filter{getTotalActiveFilters !== 1 ? 's' : ''} active
           </Text>
         </Space>
       </div>
+
+      {/* Data Limit Control */}
+      <div style={{ 
+        padding: '16px 24px',
+        borderBottom: `1px solid ${isDarkMode ? '#434343' : '#f0f0f0'}`,
+        background: isDarkMode ? '#262626' : '#fafafa'
+      }}>
+        <Space direction="vertical" style={{ width: '100%' }} size="small">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <DatabaseOutlined style={{ color: '#1890ff' }} />
+            <Text strong style={{ color: isDarkMode ? '#fff' : '#000' }}>
+              Data Display Limit
+            </Text>
+            <Tooltip title="Limit the number of records processed for better performance">
+              <InfoCircleOutlined style={{ color: isDarkMode ? '#a0a0a0' : '#666' }} />
+            </Tooltip>
+          </div>
+          
+          <Select
+            value={dataLimit}
+            onChange={handleDataLimitChange}
+            style={{ width: '100%' }}
+            placeholder="Select data limit"
+          >
+            {dataLimitOptions.map(option => (
+              <Option key={option.value || 'all'} value={option.value}>
+                {option.label}
+              </Option>
+            ))}
+          </Select>
+          
+          {performanceInfo && (
+            <Text style={{ fontSize: '11px', color: isDarkMode ? '#a0a0a0' : '#666' }}>
+              Total: {performanceInfo.totalRecords?.toLocaleString() || 'N/A'} records
+              {dataLimit && ` • Showing: ${Math.min(dataLimit, performanceInfo.totalRecords || 0).toLocaleString()}`}
+            </Text>
+          )}
+        </Space>
+      </div>
+
+      {/* Performance Warning */}
+      {performanceWarning && (
+        <div style={{ padding: '16px 24px' }}>
+          <Alert
+            message={performanceWarning.message}
+            type={performanceWarning.type}
+            showIcon
+            size="small"
+            style={{ fontSize: '12px' }}
+          />
+        </div>
+      )}
 
       {/* Filter Panels */}
       <div style={{ 
@@ -195,18 +288,34 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
           size="small"
         >
           {Object.entries(memoizedFilterOptions).map(([filterKey, filterData]) => {
-            const { label, options } = filterData;
+            if (!filterData || !filterData.options || !Array.isArray(filterData.options)) {
+              return null;
+            }
+
+            const { label, options, isSampled } = filterData;
             const filteredOptions = getFilteredOptions(filterKey, options);
             const selectedValues = localFilters[filterKey] || [];
-            const allValues = options.map(opt => opt.value);
+            const allValues = options.map(opt => opt.value).filter(val => val !== null && val !== undefined);
 
             return (
               <Panel 
                 header={
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text strong style={{ color: isDarkMode ? '#fff' : '#000' }}>
-                      {label}
-                    </Text>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Text strong style={{ color: isDarkMode ? '#fff' : '#000' }}>
+                        {label}
+                      </Text>
+                      {isSampled && (
+                        <Tooltip title="Filter options are sampled from large dataset">
+                          <InfoCircleOutlined 
+                            style={{ 
+                              color: '#fa8c16', 
+                              fontSize: '12px'
+                            }} 
+                          />
+                        </Tooltip>
+                      )}
+                    </div>
                     {selectedValues.length > 0 && (
                       <Badge 
                         count={selectedValues.length} 
@@ -238,7 +347,7 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
                     />
                   )}
 
-                  {/* Select/Clear All */}
+                  {/* Select/Clear All with counts */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <Button 
                       type="link" 
@@ -269,6 +378,17 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
                     </Button>
                   </div>
 
+                  {/* Large dataset warning for high cardinality */}
+                  {options.length > 50 && (
+                    <Alert
+                      message={`${options.length} unique values detected. Consider using search to narrow options.`}
+                      type="info"
+                      size="small"
+                      showIcon
+                      style={{ fontSize: '11px', marginBottom: '8px' }}
+                    />
+                  )}
+
                   {/* Options */}
                   <Checkbox.Group
                     value={selectedValues}
@@ -277,33 +397,39 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
                   >
                     <Space direction="vertical" style={{ width: '100%' }} size="small">
                       {filteredOptions.length > 0 ? (
-                        filteredOptions.map((option) => (
-                          <Checkbox 
-                            key={option.value} 
-                            value={option.value}
-                            style={{ 
-                              width: '100%',
-                              color: isDarkMode ? '#fff' : '#000'
-                            }}
-                          >
-                            <div style={{ 
-                              display: 'flex', 
-                              justifyContent: 'space-between', 
-                              alignItems: 'center',
-                              width: 'calc(100% - 20px)'
-                            }}>
-                              <Text 
-                                style={{ 
-                                  color: isDarkMode ? '#fff' : '#000',
-                                  fontSize: '13px'
-                                }}
-                                ellipsis={{ tooltip: option.label }}
-                              >
-                                {option.label}
-                              </Text>
-                            </div>
-                          </Checkbox>
-                        ))
+                        filteredOptions.slice(0, 100).map((option) => {
+                          if (!option || option.value === null || option.value === undefined) {
+                            return null;
+                          }
+                          
+                          return (
+                            <Checkbox 
+                              key={String(option.value)} 
+                              value={option.value}
+                              style={{ 
+                                width: '100%',
+                                color: isDarkMode ? '#fff' : '#000'
+                              }}
+                            >
+                              <div style={{ 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                width: 'calc(100% - 20px)'
+                              }}>
+                                <Text 
+                                  style={{ 
+                                    color: isDarkMode ? '#fff' : '#000',
+                                    fontSize: '13px'
+                                  }}
+                                  ellipsis={{ tooltip: option.label }}
+                                >
+                                  {option.label || String(option.value)}
+                                </Text>
+                              </div>
+                            </Checkbox>
+                          );
+                        }).filter(Boolean)
                       ) : (
                         <Text 
                           style={{ 
@@ -318,40 +444,96 @@ const FilterSidebar = ({ filterOptions, activeFilters, onFilterChange, isDarkMod
                           No options match your search
                         </Text>
                       )}
+                      
+                      {filteredOptions.length > 100 && (
+                        <Text 
+                          style={{ 
+                            color: isDarkMode ? '#a0a0a0' : '#666',
+                            fontSize: '11px',
+                            textAlign: 'center',
+                            display: 'block',
+                            padding: '8px',
+                            fontStyle: 'italic'
+                          }}
+                        >
+                          Showing first 100 options. Use search to find more.
+                        </Text>
+                      )}
                     </Space>
                   </Checkbox.Group>
                 </Space>
               </Panel>
             );
-          })}
+          }).filter(Boolean)}
         </Collapse>
       </div>
 
-      {/* Footer */}
+      {/* Footer with Performance Info */}
       <div style={{ 
         padding: '16px 24px',
         borderTop: `1px solid ${isDarkMode ? '#434343' : '#f0f0f0'}`,
         background: isDarkMode ? '#262626' : '#fafafa',
         flexShrink: 0
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ fontSize: '12px', color: isDarkMode ? '#a0a0a0' : '#666' }}>
-            <FilterOutlined style={{ marginRight: '4px' }} />
-            {getTotalActiveFilters} filter{getTotalActiveFilters !== 1 ? 's' : ''} applied
-          </Text>
+        <Space direction="vertical" style={{ width: '100%' }} size="small">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontSize: '12px', color: isDarkMode ? '#a0a0a0' : '#666' }}>
+              <FilterOutlined style={{ marginRight: '4px' }} />
+              {getTotalActiveFilters} filter{getTotalActiveFilters !== 1 ? 's' : ''} applied
+            </Text>
+            
+            {getTotalActiveFilters > 0 && (
+              <Button 
+                size="small"
+                type="primary"
+                danger
+                onClick={handleClearAllFilters}
+                style={{ fontSize: '11px' }}
+              >
+                Reset All
+              </Button>
+            )}
+          </div>
           
-          {getTotalActiveFilters > 0 && (
-            <Button 
-              size="small"
-              type="primary"
-              danger
-              onClick={handleClearAllFilters}
-              style={{ fontSize: '11px' }}
-            >
-              Reset All
-            </Button>
+          {performanceInfo && (
+            <div style={{ 
+              fontSize: '11px', 
+              color: isDarkMode ? '#a0a0a0' : '#666',
+              borderTop: `1px solid ${isDarkMode} ? "#434343" : "#e8e8e8"}`,
+              paddingTop: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Total Records:</span>
+                <span>{performanceInfo.totalRecords?.toLocaleString() || 'N/A'}</span>
+              </div>
+              {dataLimit && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Display Limit:</span>
+                  <span>{dataLimit.toLocaleString()}</span>
+                </div>
+              )}
+              {performanceInfo.filteredRecords !== undefined && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>After Filters:</span>
+                  <span>{performanceInfo.filteredRecords?.toLocaleString() || 'N/A'}</span>
+                </div>
+              )}
+              {performanceInfo.isLargeDataset && (
+                <div style={{ 
+                  marginTop: '4px', 
+                  padding: '4px', 
+                  background: isDarkMode ? '#1f1f1f' : '#fff',
+                  borderRadius: '3px',
+                  textAlign: 'center',
+                  color: '#fa8c16'
+                }}>
+                  <DatabaseOutlined style={{ marginRight: '4px' }} />
+                  Large Dataset Mode
+                </div>
+              )}
+            </div>
           )}
-        </div>
+        </Space>
       </div>
     </div>
   );

@@ -171,38 +171,82 @@ export const suggestCharts = async (sessionId, customFilters = {}) => {
  * @param {Array} selectedDimensions - Selected dimensions for custom charts
  * @returns {Promise} Dashboard data
  */
-export const generateDashboard = async (sessionId, filters = {}, selectedMeasures = null, selectedDimensions = null) => {
-  try {
-    if (!sessionId) {
-      throw new Error('Session ID is required');
+// export const generateDashboard = async (sessionId, filters = {}, selectedMeasures = null, selectedDimensions = null) => {
+//   try {
+//     if (!sessionId) {
+//       throw new Error('Session ID is required');
+//     }
+
+//     const requestData = {
+//       sessionId,
+//       filters
+//     };
+
+//     // Add custom selections if provided
+//     if (selectedMeasures) {
+//       requestData.selectedMeasures = selectedMeasures;
+//     }
+//     if (selectedDimensions) {
+//       requestData.selectedDimensions = selectedDimensions;
+//     }
+
+//     const response = await api.post('/api/generate-dashboard', requestData);
+
+//     if (!response.data.success) {
+//       throw new Error(response.data.message || 'Failed to generate dashboard');
+//     }
+
+//     return response.data;
+
+//   } catch (error) {
+//     console.error('Generate dashboard error:', error);
+//     throw error;
+//   }
+// };
+
+
+
+// Update your existing generateDashboard function in api.js:
+export const generateDashboard = async (sessionId, filters = {}, selectedMeasures = null, selectedDimensions = null, dataLimit = null, includeCustomCharts = false) => {
+    try {
+      if (!sessionId) {
+        throw new Error('Session ID is required');
+      }
+  
+      const requestData = {
+        sessionId,
+        filters,
+        dataLimit
+      };
+  
+      // Add custom selections if provided
+      if (selectedMeasures) {
+        requestData.selectedMeasures = selectedMeasures;
+      }
+      if (selectedDimensions) {
+        requestData.selectedDimensions = selectedDimensions;
+      }
+  
+      // Choose the appropriate endpoint
+      const endpoint = includeCustomCharts ? '/api/generate-dashboard-with-custom' : '/api/generate-dashboard';
+      
+      if (includeCustomCharts) {
+        requestData.includeCustomCharts = true;
+      }
+  
+      const response = await api.post(endpoint, requestData);
+  
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Failed to generate dashboard');
+      }
+  
+      return response.data;
+  
+    } catch (error) {
+      console.error('Generate dashboard error:', error);
+      throw error;
     }
-
-    const requestData = {
-      sessionId,
-      filters
-    };
-
-    // Add custom selections if provided
-    if (selectedMeasures) {
-      requestData.selectedMeasures = selectedMeasures;
-    }
-    if (selectedDimensions) {
-      requestData.selectedDimensions = selectedDimensions;
-    }
-
-    const response = await api.post('/api/generate-dashboard', requestData);
-
-    if (!response.data.success) {
-      throw new Error(response.data.message || 'Failed to generate dashboard');
-    }
-
-    return response.data;
-
-  } catch (error) {
-    console.error('Generate dashboard error:', error);
-    throw error;
-  }
-};
+  };
 
 /**
  * Get custom chart combinations from AI
