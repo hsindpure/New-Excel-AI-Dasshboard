@@ -1,5 +1,5 @@
 // frontend/src/components/ChartContainer.js
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   BarChart,
   Bar,
@@ -19,11 +19,14 @@ import {
   ScatterChart,
   Scatter
 } from 'recharts';
-import { Empty, Button, Modal } from 'antd';
-import { FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons';
+import { Empty, Button, Modal, Dropdown, message } from 'antd';
+import { FullscreenOutlined, FullscreenExitOutlined, DownloadOutlined } from '@ant-design/icons';
+import html2canvas from 'html2canvas';
 
 const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const chartRef = useRef(null);
 
   if (!chart || !chart.data || chart.data.length === 0) {
     return (
@@ -47,6 +50,72 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
   const gridColor = isDarkMode ? '#434343' : '#f0f0f0';
   const tooltipBg = isDarkMode ? '#262626' : '#fff';
   const tooltipBorder = isDarkMode ? '#434343' : '#d9d9d9';
+
+  // Export functionality
+  const exportChart = async (format = 'png') => {
+    if (!chartRef.current) {
+      message.error('Chart not ready for export');
+      return;
+    }
+
+    try {
+      setExporting(true);
+      
+      // Wait a moment for any animations to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Create canvas from the chart element
+      const canvas = await html2canvas(chartRef.current, {
+        backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff',
+        scale: 2, // Higher resolution
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        foreignObjectRendering: true,
+        width: chartRef.current.offsetWidth,
+        height: chartRef.current.offsetHeight
+      });
+
+      // Convert to blob and download
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          message.error('Failed to generate chart image');
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const fileName = `${chart.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'chart'}_${new Date().getTime()}.${format}`;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        message.success(`Chart exported as ${format.toUpperCase()}`);
+      }, `image/${format}`, format === 'jpeg' ? 0.9 : 1);
+
+    } catch (error) {
+      console.error('Export error:', error);
+      message.error('Failed to export chart. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportMenuItems = [
+    {
+      key: 'png',
+      label: 'Export as PNG',
+      onClick: () => exportChart('png')
+    },
+    {
+      key: 'jpeg',
+      label: 'Export as JPG',
+      onClick: () => exportChart('jpeg')
+    }
+  ];
 
   // Custom tooltip
   const CustomTooltip = ({ active, payload, label }) => {
@@ -315,45 +384,77 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
 
   const ChartContent = () => (
     <div 
+      ref={chartRef}
       style={{ 
         width: '100%', 
         height: isFullscreen ? '70vh' : height,
         position: 'relative',
         transition: 'all 0.3s ease',
         transform: updating ? 'scale(0.98)' : 'scale(1)',
-        filter: updating ? 'blur(0.5px)' : 'blur(0px)'
+        filter: updating ? 'blur(0.5px)' : 'blur(0px)',
+        padding: '16px',
+        background: isDarkMode ? '#1f1f1f' : '#ffffff',
+        borderRadius: '6px'
       }}
     >
       <ResponsiveContainer width="100%" height="100%">
         {renderChart()}
       </ResponsiveContainer>
       
-      {/* Fullscreen Button - Only show in normal view */}
+      {/* Action buttons - Only show in normal view */}
       {!isFullscreen && (
-        <Button
-          type="text"
-          icon={<FullscreenOutlined />}
-          onClick={handleFullscreenToggle}
-          style={{
-            position: 'absolute',
-            top: '8px',
-            right: updating ? '50px' : '8px',
-            background: 'rgba(0, 0, 0, 0.1)',
-            border: '1px solid rgba(0, 0, 0, 0.2)',
-            borderRadius: '4px',
-            color: isDarkMode ? '#fff' : '#000',
-            zIndex: 10
-          }}
-          title="View in fullscreen"
-        />
+        <>
+          {/* Fullscreen Button */}
+          <Button
+            type="text"
+            icon={<FullscreenOutlined />}
+            onClick={handleFullscreenToggle}
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              background: 'rgba(0, 0, 0, 0.1)',
+              border: '1px solid rgba(0, 0, 0, 0.2)',
+              borderRadius: '4px',
+              color: isDarkMode ? '#fff' : '#000',
+              zIndex: 10
+            }}
+            title="View in fullscreen"
+          />
+
+          {/* Export Button */}
+          <Dropdown
+            menu={{ items: exportMenuItems }}
+            trigger={['click']}
+            disabled={exporting || updating}
+          >
+            <Button
+              type="text"
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              onClick={(e) => e.preventDefault()}
+              style={{
+                position: 'absolute',
+                top: '8px',
+                right: '40px',
+                background: 'rgba(0, 0, 0, 0.1)',
+                border: '1px solid rgba(0, 0, 0, 0.2)',
+                borderRadius: '4px',
+                color: isDarkMode ? '#fff' : '#000',
+                zIndex: 10
+              }}
+              title="Export chart"
+            />
+          </Dropdown>
+        </>
       )}
       
-      {/* Subtle updating indicator */}
+      {/* Updating indicator */}
       {updating && (
         <div style={{
           position: 'absolute',
           top: '8px',
-          right: '8px',
+          right: '80px',
           background: 'rgba(24, 144, 255, 0.1)',
           border: '1px solid rgba(24, 144, 255, 0.3)',
           borderRadius: '4px',
@@ -364,6 +465,25 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
           zIndex: 10
         }}>
           Updating...
+        </div>
+      )}
+
+      {/* Exporting indicator */}
+      {exporting && (
+        <div style={{
+          position: 'absolute',
+          top: '8px',
+          right: '120px',
+          background: 'rgba(82, 196, 26, 0.1)',
+          border: '1px solid rgba(82, 196, 26, 0.3)',
+          borderRadius: '4px',
+          padding: '4px 8px',
+          fontSize: '10px',
+          color: '#52c41a',
+          fontWeight: 'bold',
+          zIndex: 10
+        }}>
+          Exporting...
         </div>
       )}
     </div>
@@ -389,13 +509,31 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
             <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
               {chart.title}
             </span>
-            <Button
-              type="text"
-              icon={<FullscreenExitOutlined />}
-              onClick={handleFullscreenToggle}
-              style={{ color: isDarkMode ? '#fff' : '#000' }}
-              title="Exit fullscreen"
-            />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {/* Export in fullscreen */}
+              <Dropdown
+                menu={{ items: exportMenuItems }}
+                trigger={['click']}
+                disabled={exporting}
+              >
+                <Button
+                  type="text"
+                  icon={<DownloadOutlined />}
+                  loading={exporting}
+                  style={{ color: isDarkMode ? '#fff' : '#000' }}
+                  title="Export chart"
+                />
+              </Dropdown>
+              
+              {/* Exit fullscreen */}
+              <Button
+                type="text"
+                icon={<FullscreenExitOutlined />}
+                onClick={handleFullscreenToggle}
+                style={{ color: isDarkMode ? '#fff' : '#000' }}
+                title="Exit fullscreen"
+              />
+            </div>
           </div>
         }
         open={isFullscreen}
