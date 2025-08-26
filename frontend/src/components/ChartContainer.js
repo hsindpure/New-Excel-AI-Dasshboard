@@ -53,36 +53,36 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
 
   // Export functionality
   const exportChart = async (format = 'png') => {
-    if (!chartRef.current) {
-      message.error('Chart not ready for export');
+    if (!chartRef.current || exporting) {
       return;
     }
-
+  
     try {
       setExporting(true);
       
-      // Wait a moment for any animations to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for any ongoing animations to finish
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Create canvas from the chart element
+      // Direct capture without cloning
       const canvas = await html2canvas(chartRef.current, {
         backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff',
-        scale: 2, // Higher resolution
+        scale: 2,
         logging: false,
         useCORS: true,
         allowTaint: true,
-        foreignObjectRendering: true,
-        width: chartRef.current.offsetWidth,
-        height: chartRef.current.offsetHeight
+        ignoreElements: (element) => {
+          // Ignore buttons and overlays during capture
+          return element.classList.contains('ant-btn') || 
+                 element.style.position === 'absolute';
+        }
       });
-
-      // Convert to blob and download
+  
       canvas.toBlob((blob) => {
         if (!blob) {
           message.error('Failed to generate chart image');
           return;
         }
-
+  
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -95,7 +95,7 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
         
         message.success(`Chart exported as ${format.toUpperCase()}`);
       }, `image/${format}`, format === 'jpeg' ? 0.9 : 1);
-
+  
     } catch (error) {
       console.error('Export error:', error);
       message.error('Failed to export chart. Please try again.');
@@ -161,8 +161,8 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
   // Animation config for smooth updates
   const animationConfig = {
     animationBegin: 0,
-    animationDuration: updating ? 300 : 800,
-    animationEasing: 'ease-in-out'
+  animationDuration: exporting ? 0 : (updating ? 300 : 800),
+  animationEasing: 'ease-in-out'
   };
 
   const renderChart = () => {
@@ -383,23 +383,23 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
   };
 
   const ChartContent = () => (
-    <div 
-      ref={chartRef}
-      style={{ 
-        width: '100%', 
-        height: isFullscreen ? '70vh' : height,
-        position: 'relative',
-        transition: 'all 0.3s ease',
-        transform: updating ? 'scale(0.98)' : 'scale(1)',
-        filter: updating ? 'blur(0.5px)' : 'blur(0px)',
-        padding: '16px',
-        background: isDarkMode ? '#1f1f1f' : '#ffffff',
-        borderRadius: '6px'
-      }}
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        {renderChart()}
-      </ResponsiveContainer>
+<div 
+  ref={chartRef}
+  style={{ 
+    width: '100%', 
+    height: isFullscreen ? '70vh' : height,
+    position: 'relative',
+    transition: 'all 0.3s ease',
+    transform: updating ? 'scale(0.98)' : 'scale(1)',
+    filter: updating ? 'blur(0.5px)' : 'blur(0px)',
+    padding: '16px',
+    background: isDarkMode ? '#1f1f1f' : '#ffffff',
+    borderRadius: '6px'
+  }}
+>
+    <ResponsiveContainer width="100%" height="100%">
+      {renderChart()}
+    </ResponsiveContainer>
       
       {/* Action buttons - Only show in normal view */}
       {!isFullscreen && (
