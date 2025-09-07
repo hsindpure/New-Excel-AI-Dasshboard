@@ -650,6 +650,192 @@ router.get('/sessions', (req, res) => {
   });
 });
 
+
+
+// Add this new endpoint for memory monitoring
+router.get('/memory-stats', (req, res) => {
+  const memUsage = process.memoryUsage();
+  
+  // Calculate estimated session memory
+  let totalSessionMemory = 0;
+  let sessionDetails = [];
+  
+  sessions.forEach((sessionData, sessionId) => {
+    // Rough estimate: each row ~0.002MB + metadata
+    const estimatedMemory = (sessionData.data?.length || 0) * 0.002;
+    totalSessionMemory += estimatedMemory;
+    
+    sessionDetails.push({
+      sessionId: sessionId.slice(-8),
+      fileName: sessionData.fileName,
+      rows: sessionData.data?.length || 0,
+      estimatedMemoryMB: Math.round(estimatedMemory * 100) / 100,
+      uploadTime: sessionData.uploadTime
+    });
+  });
+  
+  res.json({
+    success: true,
+    nodeMemory: {
+      totalHeapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024 * 100) / 100,
+      totalHeapSizeMB: Math.round(memUsage.heapTotal / 1024 / 1024 * 100) / 100,
+      externalMemoryMB: Math.round(memUsage.external / 1024 / 1024 * 100) / 100,
+      residentSetMB: Math.round(memUsage.rss / 1024 / 1024 * 100) / 100
+    },
+    sessions: {
+      totalSessions: sessions.size,
+      estimatedSessionMemoryMB: Math.round(totalSessionMemory * 100) / 100,
+      details: sessionDetails
+    },
+    systemInfo: {
+      nodeVersion: process.version,
+      platform: process.platform,
+      uptime: Math.round(process.uptime())
+    }
+  });
+});
+
+// Get raw session data for debugging
+router.get('/raw-data/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { limit = 100, offset = 0, format = 'json' } = req.query;
+    
+    const sessionData = sessions.get(sessionId);
+    
+    if (!sessionData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    const startIndex = parseInt(offset);
+    const limitNum = parseInt(limit);
+    const endIndex = Math.min(startIndex + limitNum, sessionData.data.length);
+    
+    const rawDataSlice = sessionData.data.slice(startIndex, endIndex);
+
+    if (format === 'csv') {
+      // Return as CSV
+      const headers = Object.keys(sessionData.data[0] || {});
+      let csvContent = headers.join(',') + '\n';
+      
+      rawDataSlice.forEach(row => {
+        const values = headers.map(header => {
+          const value = row[header];
+          // Escape commas and quotes in CSV
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return value || '';
+        });
+        csvContent += values.join(',') + '\n';
+      });
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="raw-data-${sessionId.slice(-8)}.csv"`);
+      return res.send(csvContent);
+    }
+
+    // Return as JSON (default)
+    res.json({
+      success: true,
+      sessionInfo: {
+        sessionId: sessionId,
+        fileName: sessionData.fileName,
+        totalRows: sessionData.data.length,
+        totalColumns: sessionData.schema?.columns?.length || 0,
+        uploadTime: sessionData.uploadTime,
+        hasTimeData: sessionData.schema?.timeAnalysis?.hasTimeData || false
+      },
+      dataSlice: {
+        startIndex,
+        endIndex,
+        count: rawDataSlice.length,
+        data: rawDataSlice
+      },
+      schema: sessionData.schema,
+      pagination: {
+        total: sessionData.data.length,
+        offset: startIndex,
+        limit: limitNum,
+        hasMore: endIndex < sessionData.data.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Raw data retrieval error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving raw data: ' + error.message
+    });
+  }
+});
+
+// Get AI sample data and schema
+router.get('/ai-sample/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const sessionData = sessions.get(sessionId);
+
+    if (!sessionData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // This mimics what AI actually receives
+    const sampleData = sessionData.sampleData || sessionData.data.slice(0, 100);
+    const optimizedSchema = {
+      measures: sessionData.schema.measures.slice(0, 10).map(m => ({
+        name: m.name,
+        type: m.type,
+        uniqueValues: Math.min(m.uniqueValues, 1000),
+        stats: m.stats ? {
+          min: m.stats.min,
+          max: m.stats.max,
+          avg: m.stats.avg
+        } : null
+      })),
+      dimensions: sessionData.schema.dimensions.slice(0, 10).map(d => ({
+        name: d.name,
+        type: d.type,
+        uniqueValues: Math.min(d.uniqueValues, 100),
+        cardinality: d.stats?.cardinality || 'unknown'
+      })),
+      totalRows: sampleData.length,
+      datasetSize: sessionData.schema.columns ? sessionData.schema.columns.length : 0
+    };
+
+    res.json({
+      success: true,
+      aiInput: {
+        sampleData: sampleData,
+        optimizedSchema: optimizedSchema,
+        prompt: `Analyze this ${optimizedSchema.totalRows} row dataset and suggest 4 KPIs and 4 charts...` // truncated
+      },
+      metadata: {
+        originalDataSize: sessionData.data.length,
+        sampleSize: sampleData.length,
+        schemaReduction: {
+          originalMeasures: sessionData.schema.measures.length,
+          optimizedMeasures: optimizedSchema.measures.length,
+          originalDimensions: sessionData.schema.dimensions.length,
+          optimizedDimensions: optimizedSchema.dimensions.length
+        }
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error getting AI sample: ' + error.message
+    });
+  }
+});
+
 // Clear all sessions (for debugging)
 router.delete('/sessions', (req, res) => {
   const count = sessions.size;
