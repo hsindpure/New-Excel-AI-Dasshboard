@@ -1,0 +1,262 @@
+AI Dashboard Platform - High-Level Coding Architecture
+Frontend Architecture & Libraries
+Core Framework Layer
+React 19.1.1 (Component Framework)
+├── Virtual DOM for efficient rendering
+├── Hooks-based state management
+├── Component lifecycle management
+└── JSX syntax for UI composition
+
+Purpose: Provides the foundation for building interactive user interfaces
+Features Enabled: Component reusability, state management, efficient updates
+UI Component Library
+Ant Design 5.27.1 (Design System)
+├── Pre-built components (Button, Card, Table, etc.)
+├── Consistent design language
+├── Built-in form validation
+├── Responsive grid system
+└── Theme customization support
+
+Purpose: Accelerates UI development with production-ready components
+Features Enabled: Professional UI, accessibility, responsive design, theming
+Data Visualization
+Recharts 3.1.2 (Chart Library)
+├── Built on D3.js foundation
+├── React component-based charts
+├── Responsive design
+├── Animation support
+└── Customizable styling
+
+Purpose: Creates interactive charts and graphs
+Features Enabled: Bar/line/pie/area charts, real-time updates, export capabilities
+HTTP Communication
+Axios 1.11.0 (HTTP Client)
+├── Promise-based API calls
+├── Request/response interceptors
+├── Error handling
+├── Request timeout management
+└── JSON data transformation
+
+Purpose: Handles all API communication with backend
+Features Enabled: File uploads, dashboard data fetching, error handling
+Chart Export Functionality
+HTML2Canvas 1.4.1 & DOM-to-Image 3.7.1
+├── Screenshot generation
+├── Canvas-based image creation
+├── High-resolution export
+└── Multiple format support (PNG, JPG)
+
+Purpose: Enables chart export to image formats
+Features Enabled: Individual chart export, dashboard screenshots
+Icon Systems
+Ant Design Icons 6.0.0 & Lucide React 0.540.0
+├── Comprehensive icon sets
+├── Tree-shaking support
+├── Consistent styling
+└── SVG-based scalability
+
+Purpose: Provides visual elements and user interface icons
+Features Enabled: Navigation icons, action buttons, status indicators
+Backend Architecture & Libraries
+Core Server Framework
+Node.js + Express 4.19.2
+├── Event-driven architecture
+├── Non-blocking I/O operations
+├── Middleware pattern
+├── RESTful API routing
+└── JSON request/response handling
+
+Purpose: Provides the web server foundation
+Features Enabled: API endpoints, request routing, middleware processing
+File Upload Processing
+Multer 1.4.5-lts.1 (File Upload Middleware)
+├── Multipart form data handling
+├── File validation
+├── Temporary storage management
+├── Memory/disk storage options
+└── File size limiting
+
+Purpose: Handles file uploads from frontend
+Features Enabled: CSV/Excel file processing, validation, temporary storage
+CSV Data Processing
+Papa Parse 5.4.1 (CSV Parser)
+├── Streaming parser support
+├── Type inference
+├── Error handling
+├── Large file optimization
+└── Header detection
+
+Purpose: Processes CSV files efficiently
+Features Enabled: Large file streaming, data type detection, memory optimization
+Excel File Processing
+XLSX 0.18.5 (Excel File Library)
+├── Multiple Excel format support (.xls, .xlsx)
+├── Sheet reading capabilities
+├── Date handling
+├── Formula support
+└── Memory-efficient parsing
+
+Purpose: Processes Excel files into JavaScript objects
+Features Enabled: Excel data extraction, format conversion, large file handling
+Session Management
+Express-Session 1.18.0
+├── Session storage
+├── Cookie management
+├── Security features
+├── Memory store (default)
+└── Redis compatibility
+
+Purpose: Manages user sessions and temporary data
+Features Enabled: Session persistence, data isolation, security
+Cross-Origin Support
+CORS 2.8.5 (Cross-Origin Resource Sharing)
+├── Origin validation
+├── Preflight handling
+├── Credential support
+└── Security configuration
+
+Purpose: Enables frontend-backend communication
+Features Enabled: Secure API access, development/production modes
+Environment Configuration
+dotenv 16.4.5 (Environment Variables)
+├── Configuration file loading
+├── Environment separation
+├── Security for sensitive data
+└── Development/production configs
+
+Purpose: Manages application configuration
+Features Enabled: API keys, database URLs, environment-specific settings
+Redis Integration (Prepared)
+Redis 5.8.2 + Connect-Redis 9.0.0
+├── In-memory data structure store
+├── Session storage scaling
+├── Caching capabilities
+└── High-performance operations
+
+Purpose: Scalable session and cache storage
+Features Enabled: Horizontal scaling, persistent sessions, caching
+High-Level Architecture Patterns
+Frontend Architecture Pattern
+Component-Based Architecture (React)
+├── Presentation Layer
+│   ├── LandingPage.js (Marketing/Entry)
+│   ├── FileUpload.js (File Handling)
+│   └── Dashboard.js (Main Interface)
+├── Service Layer
+│   ├── api.js (HTTP Communication)
+│   └── helpers.js (Utility Functions)
+├── Component Layer
+│   ├── ChartContainer.js (Visualization)
+│   ├── FilterSidebar.js (Data Filtering)
+│   └── CustomizeSidebar.js (Chart Customization)
+└── State Management
+    ├── useState (Local State)
+    ├── useEffect (Side Effects)
+    └── useCallback/useMemo (Performance)
+
+Design Pattern: Container/Presentational Components
+State Flow: Unidirectional data flow (top-down)
+Communication: Props drilling and callback functions
+Backend Architecture Pattern
+Service-Oriented Architecture (SOA)
+├── API Layer (Express Routes)
+│   ├── upload.js (File Upload Endpoints)
+│   ├── dashboard.js (Dashboard Generation)
+│   └── filters.js (Data Filtering)
+├── Service Layer
+│   ├── dataProcessor.js (File Processing)
+│   ├── aiService.js (AI Integration)
+│   └── calculator.js (Data Calculations)
+├── Middleware Layer
+│   ├── upload.js (File Handling)
+│   ├── cors.js (Security)
+│   └── session.js (State Management)
+└── Data Layer
+    ├── sessions Map (In-Memory Storage)
+    ├── Temporary Files (/uploads)
+    └── Cache Management
+
+Design Pattern: Layered Architecture with Dependency Injection
+Data Flow: Request → Middleware → Service → Response
+Error Handling: Centralized error middleware
+Library Selection Rationale
+Frontend Library Choices
+React 19.1.1
+
+Chosen for: Virtual DOM efficiency, component reusability, large ecosystem
+Alternative considered: Vue.js, Angular
+Decision factor: Best performance for complex interactive dashboards
+
+Ant Design 5.27.1
+
+Chosen for: Professional design, comprehensive components, built-in accessibility
+Alternative considered: Material-UI, Bootstrap
+Decision factor: Business-focused components ideal for dashboards
+
+Recharts 3.1.2
+
+Chosen for: React integration, declarative API, performance optimization
+Alternative considered: Chart.js, D3.js directly
+Decision factor: React-native syntax, automatic responsiveness
+
+Backend Library Choices
+Express.js 4.19.2
+
+Chosen for: Simplicity, middleware ecosystem, flexibility
+Alternative considered: Fastify, Koa.js
+Decision factor: Mature ecosystem, extensive middleware support
+
+Papa Parse 5.4.1
+
+Chosen for: Streaming support, large file handling, robust CSV parsing
+Alternative considered: csv-parser, fast-csv
+Decision factor: Best performance for large files, memory efficiency
+
+XLSX 0.18.5
+
+Chosen for: Comprehensive Excel support, multiple format handling
+Alternative considered: node-xlsx, excel4node
+Decision factor: Most complete Excel feature support
+
+Performance Architecture Decisions
+Memory Management Strategy
+Frontend Memory Optimization:
+├── React.memo for component memoization
+├── useCallback for function optimization
+├── useMemo for expensive calculations
+├── Lazy loading for large components
+└── Debounced user inputs (300ms)
+
+Backend Memory Optimization:
+├── Streaming parsers for large files
+├── Sample-based schema generation
+├── Data chunking strategies
+├── Automatic session cleanup
+└── Cache size limitations
+Scalability Considerations
+Current Architecture (Single Server):
+├── In-memory session storage
+├── File system temporary storage
+├── Single-threaded processing
+└── Vertical scaling only
+
+Prepared Scaling Solutions:
+├── Redis for distributed sessions
+├── File storage abstraction
+├── Microservice-ready structure
+└── Horizontal scaling capability
+Security Architecture
+Data Security:
+├── No permanent file storage
+├── Immediate file deletion
+├── Session isolation
+├── Memory-only processing
+└── 24-hour data expiration
+
+API Security:
+├── CORS configuration
+├── Request size limiting
+├── File type validation
+├── Session management
+└── Error information filtering
+This architecture demonstrates a well-planned separation of concerns, with each library chosen for specific capabilities that align with the platform's requirements for performance, user experience, and maintainability.
