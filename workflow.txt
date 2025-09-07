@@ -1,2 +1,3 @@
 here you can check the session id: http://localhost:5000/api/sessions
 here you can check the raw data : http://localhost:5000/api/raw-data/session_id
+here we can cehck the sample : http://localhost:5000/api/ai-sample/{sessionId}
