@@ -1,3 +1,282 @@
 here you can check the session id: http://localhost:5000/api/sessions
 here you can check the raw data : http://localhost:5000/api/raw-data/session_id
 here we can cehck the sample : http://localhost:5000/api/ai-sample/{sessionId}
+
+
+AI Dashboard Platform - Flow Diagram (Text-Based)
+System Architecture Overview
+┌─────────────────────────────────────────────────────────────────────┐
+│                    AI DASHBOARD PLATFORM                           │
+│                     SYSTEM ARCHITECTURE                            │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   FRONTEND      │    │    BACKEND      │    │   AI LAYER      │
+│   React.js      │◄──►│   Node.js       │◄──►│  OpenRouter     │
+│                 │    │   Express       │    │  GPT-3.5        │
+│ • File Upload   │    │ • File Parser   │    │ • Analysis      │
+│ • Dashboard     │    │ • Data Process  │    │ • Suggestions   │
+│ • Charts        │    │ • API Routes    │    │ • Fallback      │
+│ • Filters       │    │ • Calculations  │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                        │                        │
+         └────────────┬───────────┘                        │
+                      │                                    │
+                      ▼                                    │
+              ┌─────────────────┐                         │
+              │   DATA LAYER    │                         │
+              │  Memory Store   │◄────────────────────────┘
+              │                 │
+              │ • Sessions Map  │
+              │ • Raw Data      │
+              │ • Schema Info   │
+              │ • Temp Storage  │
+              └─────────────────┘
+Complete Data Flow Process
+USER JOURNEY: File Upload to Dashboard Generation
+
+Step 1: LANDING & UPLOAD
+┌─────────────────┐
+│ User lands on   │
+│ homepage        │
+│ Clicks "Start"  │
+└─────────┬───────┘
+          │
+          ▼
+┌─────────────────┐
+│ Upload page     │
+│ Drag/drop file  │
+│ Validate format │
+│ Show progress   │
+└─────────┬───────┘
+          │
+          ▼
+
+Step 2: BACKEND PROCESSING
+┌─────────────────────────────────────────────────────────────┐
+│                    BACKEND FILE PROCESSING                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  File Upload → Size Check → Processing Mode Selection      │
+│       │              │              │                      │
+│       │              │              ▼                      │
+│       │              │    ┌──────────────────┐             │
+│       │              │    │ Small File       │             │
+│       │              │    │ (<50MB)          │             │
+│       │              │    │ Standard Parse   │             │
+│       │              │    └─────────┬────────┘             │
+│       │              │              │                      │
+│       │              │              ▼                      │
+│       │              │    ┌──────────────────┐             │
+│       │              └───►│ Large File       │             │
+│       │                   │ (50MB+)          │             │
+│       │                   │ Streaming Parse  │             │
+│       │                   └─────────┬────────┘             │
+│       │                             │                      │
+│       ▼                             ▼                      │
+│  Store in temp file          Process in chunks            │
+│  /uploads/filename           1000 rows at a time          │
+│                              Max 100,000 rows             │
+│                                     │                      │
+│                                     ▼                      │
+│                            Delete original file           │
+│                                     │                      │
+│                                     ▼                      │
+│                          Store in sessions Map            │
+│                             (Memory only)                 │
+└─────────────────────────────────────────────────────────────┘
+Data Chunking Strategy
+DATA CHUNKING AT DIFFERENT STAGES:
+
+1. FILE PARSING CHUNKS:
+   ┌─────────────────┐
+   │ Original File   │
+   │ 500,000 rows    │
+   └─────────┬───────┘
+             │
+             ▼
+   ┌─────────────────┐
+   │ Chunk 1: 1-1000 │ ──┐
+   │ Chunk 2: 1001-  │   │
+   │ Chunk 3: 2001-  │   ├─ Process sequentially
+   │    ...          │   │
+   │ Stop at 100k    │ ──┘
+   └─────────────────┘
+
+2. SCHEMA GENERATION CHUNKS:
+   ┌─────────────────┐
+   │ Full Data       │
+   │ 100,000 rows    │
+   └─────────┬───────┘
+             │ Sample only
+             ▼
+   ┌─────────────────┐
+   │ Schema Sample   │
+   │ First 5,000     │
+   │ rows only       │
+   └─────────────────┘
+
+3. AI ANALYSIS CHUNKS:
+   ┌─────────────────┐
+   │ Full Data       │
+   │ 100,000 rows    │
+   └─────────┬───────┘
+             │ Tiny sample
+             ▼
+   ┌─────────────────┐
+   │ AI Sample       │
+   │ 50-100 rows     │
+   │ + Schema info   │
+   └─────────────────┘
+
+4. CHART DATA CHUNKS:
+   ┌─────────────────┐
+   │ Filtered Data   │
+   │ 75,000 rows     │
+   └─────────┬───────┘
+             │ Reduce for charts
+             ▼
+   ┌─────────────────┐
+   │ Chart Data      │
+   │ Max 1,000 points│
+   │ Time grouped    │
+   └─────────────────┘
+AI Analysis Flow
+AI PROCESSING WORKFLOW:
+
+Input Preparation:
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ Full Dataset    │───►│ Create Sample   │───►│ Optimize Schema │
+│ 100k rows       │    │ 50-100 rows     │    │ Compress info   │
+└─────────────────┘    └─────────────────┘    └─────────┬───────┘
+                                                        │
+                                                        ▼
+AI Request:                                   ┌─────────────────┐
+┌─────────────────┐                         │ Build Prompt    │
+│ OpenRouter API  │◄────────────────────────│ Add context     │
+│ GPT-3.5-turbo   │                         │ Set limits      │
+└─────────┬───────┘                         └─────────────────┘
+          │
+          ▼
+Response Processing:
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ Parse JSON      │───►│ Validate Data   │───►│ Generate Charts │
+│ Extract charts  │    │ Check columns   │    │ Create KPIs     │
+│ Extract KPIs    │    │ Verify types    │    │ Apply to full   │
+└─────────────────┘    └─────────────────┘    └─────────┬───────┘
+                                                        │
+Fallback System:                                        ▼
+┌─────────────────┐                              ┌─────────────────┐
+│ AI Failed?      │                              │ Send to         │
+│ Use rules:      │                              │ Frontend        │
+│ • Statistical   │                              └─────────────────┘
+│ • Pattern-based │
+│ • Type-based    │
+└─────────────────┘
+Memory Storage Structure
+IN-MEMORY DATA STORAGE:
+
+Server RAM:
+┌──────────────────────────────────────────────────────────────┐
+│                    Node.js Process Memory                   │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  sessions = Map {                                           │
+│                                                              │
+│    "session_1234_abc" => {                                  │
+│      data: [                                                │
+│        {sales: 1500, region: "North", date: "2024-01"},    │
+│        {sales: 2300, region: "South", date: "2024-01"},    │
+│        ... 100,000 rows total                               │
+│      ],                                                      │
+│      schema: {                                               │
+│        measures: [{name: "sales", type: "number"}],         │
+│        dimensions: [{name: "region", type: "string"}]       │
+│      },                                                      │
+│      fileName: "sales_data.xlsx",                           │
+│      uploadTime: "2024-01-15T10:30:00Z"                     │
+│    },                                                        │
+│                                                              │
+│    "session_5678_def" => { ... },                          │
+│    "session_9012_ghi" => { ... }                           │
+│  }                                                           │
+│                                                              │
+│  Memory Usage per session: ~200MB for 100k rows            │
+│  Total capacity: Limited by server RAM                      │
+│  Cleanup: Every 24 hours automatic                          │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+Real-Time Filter Processing
+FILTER APPLICATION FLOW:
+
+User Applies Filter:
+┌─────────────────┐
+│ User selects    │
+│ Region = "North"│
+│ Year = 2024     │
+└─────────┬───────┘
+          │
+          ▼
+Frontend Processing:
+┌─────────────────┐
+│ Debounce 300ms  │
+│ Validate input  │
+│ Send to backend │
+└─────────┬───────┘
+          │
+          ▼
+Backend Processing:
+┌─────────────────────────────────────────────────────────┐
+│ Retrieve full data from sessions.get(sessionId)        │
+│          │                                              │
+│          ▼                                              │
+│ Apply filters to 100k rows:                           │
+│   result = data.filter(row => {                        │
+│     return row.region === "North" &&                   │
+│            row.date.includes("2024")                   │
+│   })                                                    │
+│          │                                              │
+│          ▼                                              │
+│ Generate new chart data:                               │
+│   • Group filtered data                                │
+│   • Apply time grouping if needed                     │
+│   • Limit to 1000 chart points                        │
+│   • Calculate new KPIs                                │
+│          │                                              │
+│          ▼                                              │
+│ Return optimized chart data                            │
+└─────────────────────────────────────────────────────────┘
+          │
+          ▼
+Frontend Update:
+┌─────────────────┐
+│ Receive new data│
+│ Update charts   │
+│ Show loading    │
+│ Apply smooth    │
+│ transitions     │
+└─────────────────┘
+Performance Optimization Points
+PERFORMANCE OPTIMIZATION STAGES:
+
+1. UPLOAD STAGE:
+   File > 50MB ──► Streaming Parser ──► Memory Protection
+
+2. PARSING STAGE:
+   All Files ──► 100k Row Limit ──► Prevent Memory Overflow
+
+3. SCHEMA STAGE:
+   Large Data ──► 5k Sample ──► Fast Analysis
+
+4. AI STAGE:
+   Full Schema ──► 50 Row Sample ──► Reduce API Costs
+
+5. CHART STAGE:
+   All Data ──► 1k Point Limit ──► Smooth Rendering
+
+6. FILTER STAGE:
+   User Input ──► Server Processing ──► Real-time Updates
+
+7. MEMORY STAGE:
+   Sessions ──► 24h Cleanup ──► Prevent Memory Leaks
+This text-based flow diagram shows the complete architecture without HTML/CSS, using ASCII characters and structured text to illustrate the data flow, chunking strategies, and performance optimizations throughout your AI Dashboard Platform.
