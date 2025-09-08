@@ -1,0 +1,85 @@
+
+Backend Helper Functions (backend/utils/helpers.js)
+Data Processing & Validation:
+
+isValidFileType() - Validates uploaded file formats (CSV, Excel)
+isValidNumber() / isValidDate() - Type checking for data values
+cleanDataValue() - Sanitizes and normalizes data from files
+sanitizeFilename() - Makes filenames safe for storage
+
+Statistical Calculations:
+
+calculateColumnStats() - Computes min, max, avg, median for numeric columns
+groupBy() - Groups array data by specified keys
+isValidNumber() - Determines if values can be treated as numbers
+
+System Utilities:
+
+generateSessionId() - Creates unique session identifiers
+formatBytes() - Converts file sizes to human-readable format
+validateEnvVars() - Ensures required environment variables exist
+log() - Centralized logging with timestamps
+retry() - Implements retry logic with exponential backoff
+
+Response Formatting:
+
+createResponse() - Standardizes API response structure
+safeJsonParse() - JSON parsing with fallback values
+delay() - Creates promise-based delays
+
+Frontend Helper Functions (frontend/src/utils/helpers.js)
+Data Formatting:
+
+formatLargeNumber() - Converts numbers to K/M/B notation (1,500 → 1.5K)
+formatCurrency() - International currency formatting
+formatPercentage() - Percentage display formatting
+formatDate() - User-friendly date formatting
+formatFileSize() - Converts bytes to KB/MB/GB
+
+Performance Utilities:
+
+debounce() - Limits function call frequency
+throttle() - Controls function execution rate
+deepClone() - Creates deep copies of objects
+
+String Processing:
+
+capitalize() - Capitalizes first letter
+snakeToTitle() - Converts snake_case to Title Case
+truncateText() - Shortens text with ellipsis
+isEmpty() - Checks for null/undefined/empty values
+
+UI Helpers:
+
+generateRandomColor() - Creates color palettes for charts
+getContrastColor() - Determines text color based on background
+generateId() - Creates unique identifiers
+
+File & Validation:
+
+getFileExtension() - Extracts file extensions
+isSupportedFile() - Validates file types
+isValidEmail() - Email format validation
+
+Data Manipulation:
+
+sortByProperty() - Sorts arrays by object properties
+filterBySearch() - Implements search functionality
+downloadData() - Triggers file downloads
+
+Storage Utilities:
+
+storage.get/set/remove() - localStorage wrapper with error handling
+
+Key Purposes:
+1. Code Reusability - Prevents duplicate utility code across components
+2. Error Handling - Centralizes validation and error management
+3. Performance - Provides optimized functions for common operations
+4. Consistency - Ensures uniform formatting and behavior
+5. Maintenance - Single location for utility logic updates
+Most Important Functions:
+
+Backend: cleanDataValue(), calculateColumnStats(), createResponse()
+Frontend: formatLargeNumber(), debounce(), storage utilities
+
+These helpers are essential for the application's reliability and user experience, handling edge cases and providing consistent data processing throughout the system.
