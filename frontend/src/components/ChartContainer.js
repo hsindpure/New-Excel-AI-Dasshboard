@@ -18,10 +18,34 @@ import {
   ScatterChart,
   Scatter
 } from 'recharts';
+
+import { 
+  ArrowLeftOutlined, 
+  FilterOutlined, 
+  DownloadOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+  SunOutlined,
+  MoonOutlined,
+  BarChartOutlined,
+  FileAddOutlined,
+  InfoCircleOutlined,
+  CalculatorOutlined,
+  DatabaseOutlined,
+  FunctionOutlined,
+  ExperimentOutlined,
+  ThunderboltOutlined,
+  WarningOutlined,
+  ClearOutlined,
+  FullscreenOutlined,
+  FullscreenExitOutlined
+} from '@ant-design/icons';
+
+
 import { Empty, Button, Modal, Dropdown, message, Popover, Spin, Alert, Typography } from 'antd';
-import { FullscreenOutlined, FullscreenExitOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import html2canvas from 'html2canvas';
 import { getChartInsights } from '../services/api';
+
 
 const { Title, Text } = Typography;
 
@@ -31,8 +55,9 @@ const ChartContainer = ({ chart, sessionId, activeFilters, dataLimit, isDarkMode
   const chartRef = useRef(null);
 
   const [chartInsights, setChartInsights] = useState(null);
-const [insightsLoading, setInsightsLoading] = useState(false);
-const [insightsError, setInsightsError] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   if (!chart || !chart.data || chart.data.length === 0) {
     return (
@@ -89,7 +114,6 @@ const [insightsError, setInsightsError] = useState(null);
       setInsightsLoading(false);
     }
   };
-
 
 
 
@@ -426,8 +450,10 @@ const [insightsError, setInsightsError] = useState(null);
 
   const ChartContent = () => (
 <div 
+
    ref={chartRef}
   data-chart-id={chart.id}
+
   style={{ 
     width: '100%', 
     height: isFullscreen ? '70vh' : height,
@@ -445,6 +471,7 @@ const [insightsError, setInsightsError] = useState(null);
     </ResponsiveContainer>
       
       {/* Action buttons - Only show in normal view */}
+
   {/* Hidden trigger buttons for header controls */}
         {!isFullscreen && (
           <>
@@ -469,6 +496,7 @@ const [insightsError, setInsightsError] = useState(null);
             />
           </>
         )}
+
       
       {/* Updating indicator */}
       {updating && (
