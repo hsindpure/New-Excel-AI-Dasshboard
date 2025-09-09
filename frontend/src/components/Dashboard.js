@@ -36,15 +36,252 @@ import {
   ExperimentOutlined,
   ThunderboltOutlined,
   WarningOutlined,
-  ClearOutlined
+  ClearOutlined,
+  FullscreenOutlined
 } from '@ant-design/icons';
 import ChartContainer from './ChartContainer';
 import FilterSidebar from './FilterSidebar';
 import CustomizeSidebar from './CustomizeSidebar';
-import { generateDashboard, suggestCharts, addCustomChart, getSession } from '../services/api';
+
+import { 
+  generateDashboard, 
+  suggestCharts, 
+  addCustomChart, 
+  getSession,
+  getChartInsights,
+  getDashboardStory
+} from '../services/api';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
+
+// Fixed ChartInsightsContent component to prevent multiple API calls
+const ChartInsightsContent = ({ chart, sessionId, activeFilters, dataLimit, isDarkMode }) => {
+  const [chartInsights, setChartInsights] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  const loadChartInsights = useCallback(async () => {
+    if (!sessionId || insightsLoading || hasLoaded) return;
+    
+    try {
+      setInsightsLoading(true);
+      setInsightsError(null);
+      
+      const result = await getChartInsights(
+        sessionId,
+        {
+          id: chart.id,
+          title: chart.title,
+          type: chart.type,
+          measures: chart.measures,
+          dimensions: chart.dimensions,
+          data: chart.data
+        },
+        activeFilters || {},
+        dataLimit
+      );
+      
+      setChartInsights(result.insights);
+      setHasLoaded(true);
+      
+    } catch (error) {
+      console.error('Failed to load chart insights:', error);
+      setInsightsError(error.message);
+      setHasLoaded(true);
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, [sessionId, chart.id, activeFilters, dataLimit, insightsLoading, hasLoaded]);
+
+  // Expose trigger function for manual loading
+  const triggerLoad = useCallback(() => {
+    if (!hasLoaded) {
+      loadChartInsights();
+    }
+  }, [loadChartInsights, hasLoaded]);
+
+  // Expose trigger function globally for popover
+  useEffect(() => {
+    if (chart.id) {
+      window[`chartInsights_${chart.id}`] = triggerLoad;
+    }
+    return () => {
+      if (chart.id) {
+        delete window[`chartInsights_${chart.id}`];
+      }
+    };
+  }, [chart.id, triggerLoad]);
+
+  if (insightsLoading) {
+    return (
+      <div style={{ padding: '16px', textAlign: 'center' }}>
+        <Spin size="small" />
+        <div style={{ marginTop: '8px', color: isDarkMode ? '#a0a0a0' : '#666' }}>
+          Generating insights...
+        </div>
+      </div>
+    );
+  }
+
+  if (insightsError) {
+    return (
+      <div style={{ padding: '16px', maxWidth: '300px' }}>
+        <Alert
+          message="Insights Error"
+          description={insightsError}
+          type="error"
+          size="small"
+          showIcon
+          action={
+            <Button size="small" onClick={loadChartInsights}>
+              Retry
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
+  if (!hasLoaded) {
+    return (
+      <div style={{ padding: '16px', textAlign: 'center' }}>
+        <Button size="small" onClick={loadChartInsights} type="primary">
+          Load Chart Insights
+        </Button>
+      </div>
+    );
+  }
+
+  if (!chartInsights) {
+    return (
+      <div style={{ padding: '16px', maxWidth: '300px' }}>
+        <Text style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}>
+          No insights available for this chart.
+        </Text>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ 
+      maxWidth: '400px',
+      background: isDarkMode ? '#262626' : '#fff',
+      color: isDarkMode ? '#fff' : '#000'
+    }}>
+      {/* Chart Story */}
+      {chartInsights.story && (
+        <div style={{ marginBottom: '16px' }}>
+          <Title level={5} style={{ 
+            margin: '0 0 8px 0', 
+            color: isDarkMode ? '#fff' : '#000',
+            fontSize: '14px'
+          }}>
+            Chart Story
+          </Title>
+          <Text style={{ 
+            color: isDarkMode ? '#a0a0a0' : '#666',
+            fontSize: '13px',
+            lineHeight: '1.4'
+          }}>
+            {chartInsights.story}
+          </Text>
+        </div>
+      )}
+
+      {/* Key Insights */}
+      {chartInsights.keyInsights && chartInsights.keyInsights.length > 0 && (
+        <div style={{ marginBottom: '16px' }}>
+          <Title level={5} style={{ 
+            margin: '0 0 8px 0', 
+            color: isDarkMode ? '#fff' : '#000',
+            fontSize: '14px'
+          }}>
+            Key Insights
+          </Title>
+          <ul style={{ 
+            margin: 0, 
+            paddingLeft: '16px',
+            color: isDarkMode ? '#a0a0a0' : '#666',
+            fontSize: '13px'
+          }}>
+            {chartInsights.keyInsights.map((insight, index) => (
+              <li key={index} style={{ marginBottom: '4px' }}>
+                {insight}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Data Analysis */}
+      {chartInsights.dataAnalysis && (
+        <div style={{ marginBottom: '16px' }}>
+          <Title level={5} style={{ 
+            margin: '0 0 8px 0', 
+            color: isDarkMode ? '#fff' : '#000',
+            fontSize: '14px'
+          }}>
+            Data Analysis
+          </Title>
+          {Object.entries(chartInsights.dataAnalysis).map(([key, value]) => (
+            <div key={key} style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              marginBottom: '4px',
+              fontSize: '12px'
+            }}>
+              <Text style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}>
+                {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:
+              </Text>
+              <Text style={{ color: isDarkMode ? '#fff' : '#000', fontWeight: 'bold' }}>
+                {typeof value === 'number' ? value.toLocaleString() : value}
+              </Text>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Recommendations */}
+      {chartInsights.recommendations && chartInsights.recommendations.length > 0 && (
+        <div>
+          <Title level={5} style={{ 
+            margin: '0 0 8px 0', 
+            color: isDarkMode ? '#fff' : '#000',
+            fontSize: '14px'
+          }}>
+            Recommendations
+          </Title>
+          <ul style={{ 
+            margin: 0, 
+            paddingLeft: '16px',
+            color: isDarkMode ? '#a0a0a0' : '#666',
+            fontSize: '13px'
+          }}>
+            {chartInsights.recommendations.map((rec, index) => (
+              <li key={index} style={{ marginBottom: '4px' }}>
+                {rec}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Chart Metadata */}
+      <div style={{
+        marginTop: '16px',
+        paddingTop: '12px',
+        borderTop: `1px solid ${isDarkMode ? '#434343' : '#f0f0f0'}`,
+        fontSize: '11px',
+        color: isDarkMode ? '#666' : '#999'
+      }}>
+        Chart Type: {chart.type} • Data Points: {chart.data?.length || 0}
+        {chart.isLimited && <span> • Performance Limited</span>}
+      </div>
+    </div>
+  );
+};
 
 const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDarkMode }) => {
   const [initialLoading, setInitialLoading] = useState(true);
@@ -63,6 +300,10 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
   
   // Add state for managing closed charts
   const [closedCharts, setClosedCharts] = useState(new Set());
+
+  const [dashboardStory, setDashboardStory] = useState(null);
+  const [storyLoading, setStoryLoading] = useState(false);
+  const [storyError, setStoryError] = useState(null);
 
   const handleChartClose = useCallback((chartId) => {
     setClosedCharts(prev => new Set([...prev, chartId]));
@@ -123,6 +364,25 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
     }
   }, [sessionId]);
 
+  // Fixed loadDashboardStory to prevent unnecessary calls
+  const loadDashboardStory = useCallback(async () => {
+    if (!sessionId || storyLoading || dashboardStory) return;
+    
+    try {
+      setStoryLoading(true);
+      setStoryError(null);
+      
+      const result = await getDashboardStory(sessionId, activeFilters, dataLimit);
+      setDashboardStory(result.story);
+      
+    } catch (error) {
+      console.error('Failed to load dashboard story:', error);
+      setStoryError(error.message);
+    } finally {
+      setStoryLoading(false);
+    }
+  }, [sessionId, activeFilters, dataLimit, storyLoading, dashboardStory]);
+
   const loadInitialDashboard = useCallback(async () => {
     try {
       setInitialLoading(true);
@@ -152,7 +412,17 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
     }
   }, [sessionId, fileInfo]);
 
+  // Fixed updateDashboardWithFilters to prevent unnecessary updates
   const updateDashboardWithFilters = useCallback(async (filters, newDataLimit = dataLimit) => {
+    // Prevent unnecessary updates if filters and limit haven't changed
+    const filtersChanged = JSON.stringify(filters) !== JSON.stringify(activeFilters);
+    const limitChanged = newDataLimit !== dataLimit;
+    
+    if (!filtersChanged && !limitChanged) {
+      console.log('No changes detected, skipping dashboard update');
+      return;
+    }
+
     try {
       setChartsUpdating(true);
       
@@ -182,7 +452,7 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
     } finally {
       setChartsUpdating(false);
     }
-  }, [sessionId, dataLimit]);
+  }, [sessionId, dataLimit, activeFilters]);
 
   const handleDataLimitChange = useCallback(async (newDataLimit) => {
     try {
@@ -204,7 +474,8 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
     await updateDashboardWithFilters(newFilters);
   }, [updateDashboardWithFilters]);
 
-  const handleCustomize = async () => {
+  // Fixed handleCustomize to not trigger dashboard updates
+  const handleCustomize = useCallback(() => {
     try {
       setCustomizing(true);
       setCustomizeDrawerVisible(true);
@@ -213,7 +484,7 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
     } finally {
       setCustomizing(false);
     }
-  };
+  }, []);
 
   const handleChartConfirm = useCallback(async (chartCombination) => {
     try {
@@ -277,6 +548,195 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
     } catch (error) {
       message.error('Failed to export dashboard');
     }
+  };
+
+  // Fixed dashboard story content component
+  const DashboardStoryContent = () => {
+    if (storyLoading) {
+      return (
+        <div style={{ padding: '16px', textAlign: 'center' }}>
+          <Spin size="small" />
+          <div style={{ marginTop: '8px', color: isDarkMode ? '#a0a0a0' : '#666' }}>
+            Analyzing dashboard data...
+          </div>
+        </div>
+      );
+    }
+
+    if (storyError) {
+      return (
+        <div style={{ padding: '16px', maxWidth: '400px' }}>
+          <Alert
+            message="Analysis Error"
+            description={storyError}
+            type="error"
+            size="small"
+            showIcon
+            action={
+              <Button size="small" onClick={loadDashboardStory}>
+                Retry
+              </Button>
+            }
+          />
+        </div>
+      );
+    }
+
+    if (!dashboardStory) {
+      return (
+        <div style={{ padding: '16px', maxWidth: '400px' }}>
+          <Text style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}>
+            No dashboard analysis available.
+          </Text>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ 
+        maxWidth: '500px',
+        background: isDarkMode ? '#262626' : '#fff',
+        color: isDarkMode ? '#fff' : '#000'
+      }}>
+        {/* Executive Summary */}
+        {dashboardStory.executiveSummary && (
+          <div style={{ marginBottom: '16px' }}>
+            <Title level={5} style={{ 
+              margin: '0 0 8px 0', 
+              color: isDarkMode ? '#fff' : '#000',
+              fontSize: '14px'
+            }}>
+              Executive Summary
+            </Title>
+            <Text style={{ 
+              color: isDarkMode ? '#a0a0a0' : '#666',
+              fontSize: '13px',
+              lineHeight: '1.4'
+            }}>
+              {dashboardStory.executiveSummary}
+            </Text>
+          </div>
+        )}
+
+        {/* Key Findings */}
+        {dashboardStory.keyFindings && dashboardStory.keyFindings.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <Title level={5} style={{ 
+              margin: '0 0 8px 0', 
+              color: isDarkMode ? '#fff' : '#000',
+              fontSize: '14px'
+            }}>
+              Key Findings
+            </Title>
+            <ul style={{ 
+              margin: 0, 
+              paddingLeft: '16px',
+              color: isDarkMode ? '#a0a0a0' : '#666',
+              fontSize: '13px'
+            }}>
+              {dashboardStory.keyFindings.map((finding, index) => (
+                <li key={index} style={{ marginBottom: '4px' }}>
+                  {finding}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Data Trends */}
+        {dashboardStory.trends && dashboardStory.trends.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <Title level={5} style={{ 
+              margin: '0 0 8px 0', 
+              color: isDarkMode ? '#fff' : '#000',
+              fontSize: '14px'
+            }}>
+              Data Trends
+            </Title>
+            <ul style={{ 
+              margin: 0, 
+              paddingLeft: '16px',
+              color: isDarkMode ? '#a0a0a0' : '#666',
+              fontSize: '13px'
+            }}>
+              {dashboardStory.trends.map((trend, index) => (
+                <li key={index} style={{ marginBottom: '4px' }}>
+                  {trend}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Recommendations */}
+        {dashboardStory.recommendations && dashboardStory.recommendations.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <Title level={5} style={{ 
+              margin: '0 0 8px 0', 
+              color: isDarkMode ? '#fff' : '#000',
+              fontSize: '14px'
+            }}>
+              Recommendations
+            </Title>
+            <ul style={{ 
+              margin: 0, 
+              paddingLeft: '16px',
+              color: isDarkMode ? '#a0a0a0' : '#666',
+              fontSize: '13px'
+            }}>
+              {dashboardStory.recommendations.map((rec, index) => (
+                <li key={index} style={{ marginBottom: '4px' }}>
+                  {rec}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Performance Metrics */}
+        {dashboardStory.performanceMetrics && (
+          <div style={{ marginBottom: '16px' }}>
+            <Title level={5} style={{ 
+              margin: '0 0 8px 0', 
+              color: isDarkMode ? '#fff' : '#000',
+              fontSize: '14px'
+            }}>
+              Performance Metrics
+            </Title>
+            {Object.entries(dashboardStory.performanceMetrics).map(([key, value]) => (
+              <div key={key} style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between',
+                marginBottom: '4px',
+                fontSize: '12px'
+              }}>
+                <Text style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}>
+                  {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:
+                </Text>
+                <Text style={{ color: isDarkMode ? '#fff' : '#000', fontWeight: 'bold' }}>
+                  {typeof value === 'number' ? value.toLocaleString() : value}
+                </Text>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Dashboard Metadata */}
+        <div style={{
+          marginTop: '16px',
+          paddingTop: '12px',
+          borderTop: `1px solid ${isDarkMode ? '#434343' : '#f0f0f0'}`,
+          fontSize: '11px',
+          color: isDarkMode ? '#666' : '#999'
+        }}>
+          Analysis generated on {new Date().toLocaleString()}
+          {activeFilters && Object.keys(activeFilters).length > 0 && (
+            <span> • {Object.keys(activeFilters).length} filter(s) applied</span>
+          )}
+          {dataLimit && <span> • Limited to {dataLimit.toLocaleString()} records</span>}
+        </div>
+      </div>
+    );
   };
 
   // Performance indicators
@@ -421,6 +881,194 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
       </div>
     );
   };
+
+  // Memoized charts to prevent unnecessary re-renders
+  const memoizedCharts = useMemo(() => {
+    return visibleCharts.map((chart, index) => (
+      <Col xs={24} lg={12} key={`${chart.id}-${index}`}>
+        <Card 
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ color: isDarkMode ? '#fff' : '#000' }}>
+                {chart.title}
+              </span>
+              {chart.isCustom && (
+                <Tag color="orange" size="small">
+                  Custom
+                </Tag>
+              )}
+              {chart.isAiGenerated && (
+                <Tag color="green" size="small">
+                  AI
+                </Tag>
+              )}
+              {chart.isLimited && (
+                <Tag color="blue" size="small">
+                  Limited
+                </Tag>
+              )}
+              {chart.optimizedForLargeData && (
+                <Tag color="purple" size="small">
+                  Optimized
+                </Tag>
+              )}
+            </div>
+          }
+          extra={
+            <Space>
+              {/* Chart Info Button with Popover */}
+              <Popover
+                content={
+                  <ChartInsightsContent 
+                    chart={chart}
+                    sessionId={sessionId}
+                    activeFilters={activeFilters}
+                    dataLimit={dataLimit}
+                    isDarkMode={isDarkMode}
+                  />
+                }
+                title={
+                  <span style={{ color: isDarkMode ? '#fff' : '#000' }}>
+                    <InfoCircleOutlined style={{ marginRight: '8px' }} />
+                    Chart Insights: {chart.title}
+                  </span>
+                }
+                trigger="hover"
+                placement="bottomRight"
+                overlayStyle={{ maxWidth: '400px' }}
+                onOpenChange={(visible) => {
+                  if (visible && window[`chartInsights_${chart.id}`]) {
+                    window[`chartInsights_${chart.id}`]();
+                  }
+                }}
+              >
+                <Button 
+                  type="text" 
+                  icon={<InfoCircleOutlined />}
+                  size="small"
+                  style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}
+                  title="View chart insights"
+                />
+              </Popover>
+              
+              {/* Fullscreen Button */}
+              <Button 
+                type="text" 
+                icon={<FullscreenOutlined />}
+                size="small"
+                style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}
+                title="View in fullscreen"
+                onClick={() => {
+                  const chartElement = document.querySelector(`[data-chart-id="${chart.id}"]`);
+                  if (chartElement) {
+                    const fullscreenButton = chartElement.querySelector('.chart-fullscreen-button');
+                    if (fullscreenButton) fullscreenButton.click();
+                  }
+                }}
+              />
+              
+              {/* Export Button */}
+              <Button 
+                type="text" 
+                icon={<DownloadOutlined />}
+                size="small"
+                style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}
+                title="Export chart"
+                onClick={() => {
+                  const chartElement = document.querySelector(`[data-chart-id="${chart.id}"]`);
+                  if (chartElement) {
+                    const exportButton = chartElement.querySelector('.chart-export-button');
+                    if (exportButton) exportButton.click();
+                  }
+                }}
+              />
+              
+              <Button 
+                type="text" 
+                icon={<ReloadOutlined />}
+                size="small"
+                onClick={() => updateDashboardWithFilters(activeFilters)}
+                style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}
+                title="Refresh chart"
+              />
+              <Button 
+                type="text" 
+                icon={<ClearOutlined />}
+                size="small"
+                onClick={() => handleChartClose(chart.id)}
+                style={{ color: '#ff4d4f' }}
+                title="Remove chart"
+              />
+            </Space>
+          }
+          style={{ 
+            background: isDarkMode ? '#1f1f1f' : '#fff',
+            borderColor: isDarkMode ? '#434343' : '#f0f0f0',
+            transition: 'all 0.3s ease',
+            position: 'relative',
+            ...(chart.isCustom && {
+              borderLeft: `4px solid #fa8c16`,
+              borderLeftWidth: '4px'
+            })
+          }}
+          headStyle={{ 
+            background: isDarkMode ? '#262626' : '#fafafa',
+            borderBottomColor: isDarkMode ? '#434343' : '#f0f0f0'
+          }}
+          bodyStyle={{ padding: '16px', position: 'relative' }}
+          hoverable
+        >
+          {chartsUpdating && (
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(24, 144, 255, 0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1,
+              borderRadius: '6px'
+            }}>
+              <Spin size="default" />
+            </div>
+          )}
+          
+          <ChartContainer 
+            chart={chart}
+            sessionId={sessionId}
+            activeFilters={activeFilters}
+            dataLimit={dataLimit}
+            isDarkMode={isDarkMode}
+            height={300}
+            updating={chartsUpdating}
+          />
+          
+          {/* Chart performance info */}
+          {chart.dataPoints && (
+            <div style={{ 
+              fontSize: '11px', 
+              color: isDarkMode ? '#a0a0a0' : '#999',
+              marginTop: '8px',
+              textAlign: 'center',
+              borderTop: `1px solid ${isDarkMode ? '#434343' : '#f0f0f0'}`,
+              paddingTop: '8px'
+            }}>
+              Chart data: {chart.dataPoints.toLocaleString()} records
+              {chart.isLimited && (
+                <span style={{ color: '#fa8c16' }}> (performance limited)</span>
+              )}
+              {chart.isCustom && (
+                <span style={{ color: '#fa8c16' }}> • Custom Generated</span>
+              )}
+            </div>
+          )}
+        </Card>
+      </Col>
+    ));
+  }, [visibleCharts, isDarkMode, chartsUpdating, sessionId, activeFilters, dataLimit, updateDashboardWithFilters, handleChartClose]);
 
   // Show initial loading screen
   if (initialLoading) {
@@ -589,6 +1237,32 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
             Customize
           </Button>
           
+          {/* Dashboard Insights Button */}
+          <Popover
+            content={<DashboardStoryContent />}
+            title={
+              <span style={{ color: isDarkMode ? '#fff' : '#000' }}>
+                <InfoCircleOutlined style={{ marginRight: '8px' }} />
+                Dashboard Analysis & Insights
+              </span>
+            }
+            trigger="hover"
+            placement="bottomRight"
+            onOpenChange={(visible) => {
+              if (visible && !dashboardStory && !storyLoading) {
+                loadDashboardStory();
+              }
+            }}
+          >
+            <Button 
+              icon={<InfoCircleOutlined />}
+              type="default"
+              loading={storyLoading}
+            >
+              Insights
+            </Button>
+          </Popover>
+
           <Button 
             icon={<DownloadOutlined />}
             onClick={exportDashboard}
@@ -769,121 +1443,7 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
             )}
             
             <Row gutter={[16, 16]}>
-              {visibleCharts.map((chart, index) => (
-                <Col xs={24} lg={12} key={chart.id || index}>
-                  <Card 
-                    title={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ color: isDarkMode ? '#fff' : '#000' }}>
-                          {chart.title}
-                        </span>
-                        {chart.isCustom && (
-                          <Tag color="orange" size="small">
-                            Custom
-                          </Tag>
-                        )}
-                        {chart.isAiGenerated && (
-                          <Tag color="green" size="small">
-                            AI
-                          </Tag>
-                        )}
-                        {chart.isLimited && (
-                          <Tag color="blue" size="small">
-                            Limited
-                          </Tag>
-                        )}
-                        {chart.optimizedForLargeData && (
-                          <Tag color="purple" size="small">
-                            Optimized
-                          </Tag>
-                        )}
-                      </div>
-                    }
-                    extra={
-                      <Space>
-                        <Button 
-                          type="text" 
-                          icon={<ReloadOutlined />}
-                          size="small"
-                          onClick={() => updateDashboardWithFilters(activeFilters)}
-                          style={{ color: isDarkMode ? '#a0a0a0' : '#666' }}
-                          title="Refresh chart"
-                        />
-                        <Button 
-                          type="text" 
-                          icon={<ClearOutlined />}
-                          size="small"
-                          onClick={() => handleChartClose(chart.id)}
-                          style={{ color: '#ff4d4f' }}
-                          title="Remove chart"
-                        />
-                      </Space>
-                    }
-                    style={{ 
-                      background: isDarkMode ? '#1f1f1f' : '#fff',
-                      borderColor: isDarkMode ? '#434343' : '#f0f0f0',
-                      transition: 'all 0.3s ease',
-                      position: 'relative',
-                      // Highlight custom charts with subtle border
-                      ...(chart.isCustom && {
-                        borderLeft: `4px solid #fa8c16`,
-                        borderLeftWidth: '4px'
-                      })
-                    }}
-                    headStyle={{ 
-                      background: isDarkMode ? '#262626' : '#fafafa',
-                      borderBottomColor: isDarkMode ? '#434343' : '#f0f0f0'
-                    }}
-                    bodyStyle={{ padding: '16px', position: 'relative' }}
-                    hoverable
-                  >
-                    {chartsUpdating && (
-                      <div style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'rgba(24, 144, 255, 0.05)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 1,
-                        borderRadius: '6px'
-                      }}>
-                        <Spin size="default" />
-                      </div>
-                    )}
-                    
-                    <ChartContainer 
-                      chart={chart} 
-                      isDarkMode={isDarkMode}
-                      height={300}
-                      updating={chartsUpdating}
-                    />
-                    
-                    {/* Chart performance info */}
-                    {chart.dataPoints && (
-                      <div style={{ 
-                        fontSize: '11px', 
-                        color: isDarkMode ? '#a0a0a0' : '#999',
-                        marginTop: '8px',
-                        textAlign: 'center',
-                        borderTop: `1px solid ${isDarkMode ? '#434343' : '#f0f0f0'}`,
-                        paddingTop: '8px'
-                      }}>
-                        Chart data: {chart.dataPoints.toLocaleString()} records
-                        {chart.isLimited && (
-                          <span style={{ color: '#fa8c16' }}> (performance limited)</span>
-                        )}
-                        {chart.isCustom && (
-                          <span style={{ color: '#fa8c16' }}> • Custom Generated</span>
-                        )}
-                      </div>
-                    )}
-                  </Card>
-                </Col>
-              ))}
+              {memoizedCharts}
             </Row>
           </>
         )}

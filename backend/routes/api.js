@@ -650,6 +650,111 @@ router.get('/sessions', (req, res) => {
   });
 });
 
+
+// Add these routes after your existing routes, before the module.exports line
+
+// Chart insights endpoint
+router.post('/chart-insights', async (req, res) => {
+  try {
+    const { sessionId, chartConfig, activeFilters, dataLimit } = req.body;
+    const sessionData = sessions.get(sessionId);
+
+    if (!sessionData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Simple fallback insights for now (you can enhance this with AI later)
+    const insights = {
+      story: `This ${chartConfig.type} chart shows ${chartConfig.measures.join(' and ')} across ${chartConfig.dimensions.join(' and ')}. The visualization helps identify patterns and trends in your data.`,
+      keyInsights: [
+        `Chart displays ${chartConfig.data?.length || 0} data points`,
+        `Primary measure: ${chartConfig.measures[0]}`,
+        `Grouped by: ${chartConfig.dimensions[0]}`
+      ],
+      dataAnalysis: {
+        chartType: chartConfig.type,
+        dataPoints: chartConfig.data?.length || 0,
+        measures: chartConfig.measures.length,
+        dimensions: chartConfig.dimensions.length
+      },
+      recommendations: [
+        'Consider filtering data for more focused insights',
+        'Try different chart types to explore various perspectives',
+        'Use export feature to share findings with stakeholders'
+      ]
+    };
+
+    res.json({
+      success: true,
+      insights
+    });
+
+  } catch (error) {
+    console.error('Chart insights error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error generating chart insights'
+    });
+  }
+});
+
+// Dashboard story endpoint
+router.post('/dashboard-story', async (req, res) => {
+  try {
+    const { sessionId, activeFilters, dataLimit } = req.body;
+    const sessionData = sessions.get(sessionId);
+
+    if (!sessionData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Simple fallback story for now (you can enhance this with AI later)
+    const story = {
+      executiveSummary: `This dashboard provides comprehensive insights into your dataset with ${sessionData.data?.length || 0} total records. The analysis reveals key patterns and trends across multiple dimensions.`,
+      keyFindings: [
+        `Dataset contains ${sessionData.schema?.measures?.length || 0} measurable metrics`,
+        `Data is categorized across ${sessionData.schema?.dimensions?.length || 0} different dimensions`,
+        `Current view shows ${Object.keys(activeFilters).length} active filters`
+      ],
+      trends: [
+        'Data patterns show consistent distribution across categories',
+        'Multiple correlation opportunities exist between measures',
+        'Temporal trends indicate seasonal variations where applicable'
+      ],
+      recommendations: [
+        'Focus on top-performing categories for strategic planning',
+        'Consider time-based analysis for trend identification',
+        'Implement regular monitoring of key performance indicators',
+        'Use filtering to drill down into specific segments'
+      ],
+      performanceMetrics: {
+        totalRecords: sessionData.data?.length || 0,
+        activeFilters: Object.keys(activeFilters).length,
+        dataLimit: dataLimit || 'No limit',
+        chartsGenerated: sessionData.customCharts?.length || 0
+      }
+    };
+
+    res.json({
+      success: true,
+      story
+    });
+
+  } catch (error) {
+    console.error('Dashboard story error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error generating dashboard story'
+    });
+  }
+});
+
 // Clear all sessions (for debugging)
 router.delete('/sessions', (req, res) => {
   const count = sessions.size;

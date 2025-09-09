@@ -339,6 +339,71 @@ export const addCustomChart = async (sessionId, chartCombination, activeFilters 
   }
 };
 
+
+/**
+ * Get chart insights and story
+ * @param {string} sessionId - Session identifier
+ * @param {Object} chartConfig - Chart configuration
+ * @param {Object} activeFilters - Current filters
+ * @param {number} dataLimit - Data limit
+ * @returns {Promise} Chart insights
+ */
+ export const getChartInsights = async (sessionId, chartConfig, activeFilters = {}, dataLimit = null) => {
+  try {
+    if (!sessionId || !chartConfig) {
+      throw new Error('Session ID and chart configuration are required');
+    }
+
+    const response = await api.post('/api/chart-insights', {
+      sessionId,
+      chartConfig,
+      activeFilters,
+      dataLimit
+    });
+
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Failed to get chart insights');
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error('Chart insights error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get complete dashboard story and analysis
+ * @param {string} sessionId - Session identifier
+ * @param {Object} activeFilters - Current filters
+ * @param {number} dataLimit - Data limit
+ * @returns {Promise} Dashboard story
+ */
+export const getDashboardStory = async (sessionId, activeFilters = {}, dataLimit = null) => {
+  try {
+    if (!sessionId) {
+      throw new Error('Session ID is required');
+    }
+
+    const response = await api.post('/api/dashboard-story', {
+      sessionId,
+      activeFilters,
+      dataLimit
+    });
+
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Failed to get dashboard story');
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error('Dashboard story error:', error);
+    throw error;
+  }
+};
+
 /**
  * Get available filter options
  * @param {string} sessionId - Session identifier

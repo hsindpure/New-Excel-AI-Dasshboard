@@ -1,4 +1,3 @@
-// frontend/src/components/ChartContainer.js
 import React, { useState, useRef } from 'react';
 import {
   BarChart,
@@ -19,14 +18,21 @@ import {
   ScatterChart,
   Scatter
 } from 'recharts';
-import { Empty, Button, Modal, Dropdown, message } from 'antd';
-import { FullscreenOutlined, FullscreenExitOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Empty, Button, Modal, Dropdown, message, Popover, Spin, Alert, Typography } from 'antd';
+import { FullscreenOutlined, FullscreenExitOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import html2canvas from 'html2canvas';
+import { getChartInsights } from '../services/api';
 
-const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) => {
+const { Title, Text } = Typography;
+
+const ChartContainer = ({ chart, sessionId, activeFilters, dataLimit, isDarkMode, height = 300, updating = false }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const chartRef = useRef(null);
+
+  const [chartInsights, setChartInsights] = useState(null);
+const [insightsLoading, setInsightsLoading] = useState(false);
+const [insightsError, setInsightsError] = useState(null);
 
   if (!chart || !chart.data || chart.data.length === 0) {
     return (
@@ -50,6 +56,42 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
   const gridColor = isDarkMode ? '#434343' : '#f0f0f0';
   const tooltipBg = isDarkMode ? '#262626' : '#fff';
   const tooltipBorder = isDarkMode ? '#434343' : '#d9d9d9';
+
+
+  // Add this function after existing functions
+  const loadChartInsights = async () => {
+    if (!sessionId || insightsLoading || chartInsights) return;
+    
+    try {
+      setInsightsLoading(true);
+      setInsightsError(null);
+      
+      const result = await getChartInsights(
+        sessionId,
+        {
+          id: chart.id,
+          title: chart.title,
+          type: chart.type,
+          measures: chart.measures,
+          dimensions: chart.dimensions,
+          data: chart.data
+        },
+        activeFilters || {},
+        dataLimit
+      );
+      
+      setChartInsights(result.insights);
+      
+    } catch (error) {
+      console.error('Failed to load chart insights:', error);
+      setInsightsError(error.message);
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
+
+
 
   // Export functionality
   const exportChart = async (format = 'png') => {
@@ -384,7 +426,8 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
 
   const ChartContent = () => (
 <div 
-  ref={chartRef}
+   ref={chartRef}
+  data-chart-id={chart.id}
   style={{ 
     width: '100%', 
     height: isFullscreen ? '70vh' : height,
@@ -402,52 +445,30 @@ const ChartContainer = ({ chart, isDarkMode, height = 300, updating = false }) =
     </ResponsiveContainer>
       
       {/* Action buttons - Only show in normal view */}
-      {!isFullscreen && (
-        <>
-          {/* Fullscreen Button */}
-          <Button
-            type="text"
-            icon={<FullscreenOutlined />}
-            onClick={handleFullscreenToggle}
-            style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              background: 'rgba(0, 0, 0, 0.1)',
-              border: '1px solid rgba(0, 0, 0, 0.2)',
-              borderRadius: '4px',
-              color: isDarkMode ? '#fff' : '#000',
-              zIndex: 10
-            }}
-            title="View in fullscreen"
-          />
+  {/* Hidden trigger buttons for header controls */}
+        {!isFullscreen && (
+          <>
+            {/* Hidden Chart Info Button */}
+          
 
-          {/* Export Button */}
-          <Dropdown
-            menu={{ items: exportMenuItems }}
-            trigger={['click']}
-            disabled={exporting || updating}
-          >
-            <Button
-              type="text"
-              icon={<DownloadOutlined />}
-              loading={exporting}
-              onClick={(e) => e.preventDefault()}
-              style={{
-                position: 'absolute',
-                top: '8px',
-                right: '40px',
-                background: 'rgba(0, 0, 0, 0.1)',
-                border: '1px solid rgba(0, 0, 0, 0.2)',
-                borderRadius: '4px',
-                color: isDarkMode ? '#fff' : '#000',
-                zIndex: 10
-              }}
-              title="Export chart"
+            {/* Hidden Fullscreen Button */}
+            <button
+              className="chart-fullscreen-button"
+              onClick={handleFullscreenToggle}
+              style={{ display: 'none' }}
             />
-          </Dropdown>
-        </>
-      )}
+
+            {/* Hidden Export Button */}
+            <button
+              className="chart-export-button"
+              onClick={(e) => {
+                e.preventDefault();
+                exportChart('png');
+              }}
+              style={{ display: 'none' }}
+            />
+          </>
+        )}
       
       {/* Updating indicator */}
       {updating && (
