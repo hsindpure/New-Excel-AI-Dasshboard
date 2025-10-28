@@ -10,35 +10,44 @@ class AIService {
       this.maxCacheSize = 100; // Limit cache entries
       this.maxTokensPerRequest = 4000; // Safe token limit
     }
+
     
-    async getSuggestions(schema, sampleData = null) {
+    async getSuggestions(schema, sampleData, userContext = null) {
       try {
         // Create optimized cache key
         const cacheKey = this.generateOptimizedCacheKey(schema, sampleData);
         
-        // Check cache first
-        if (this.cache.has(cacheKey)) {
+        // ✅ ONLY CHANGE: Skip cache if user has context (personalized request)
+        if (!userContext && this.cache.has(cacheKey)) {
           console.log('Using cached AI suggestions for large dataset');
           return this.cache.get(cacheKey);
         }
         
-        console.log('Requesting AI suggestions for dataset...');
+        // ✅ ADD: Log when context is present
+        if (userContext) {
+          console.log('🎯 Requesting AI suggestions WITH user context');
+        } else {
+          console.log('Requesting AI suggestions for dataset...');
+        }
         
         // Use sample data for AI analysis instead of full dataset
         const optimizedSchema = this.optimizeSchemaForAI(schema, sampleData);
         
         let suggestions;
         try {
-          suggestions = await this.getAISuggestions(optimizedSchema, sampleData);
+          // ✅ ONLY CHANGE: Pass userContext to getAISuggestions
+          suggestions = await this.getAISuggestions(optimizedSchema, sampleData, userContext);
           console.log('AI suggestions received for large dataset');
         } catch (error) {
           console.warn('AI service failed, using enhanced fallback:', error.message);
           suggestions = this.getEnhancedFallbackSuggestions(schema, sampleData);
         }
         
-        // Cache with size management
-        this.manageCacheSize();
-        this.cache.set(cacheKey, suggestions);
+        // ✅ ONLY CHANGE: Don't cache personalized results
+        if (!userContext) {
+          this.manageCacheSize();
+          this.cache.set(cacheKey, suggestions);
+        }
         
         return suggestions;
         
