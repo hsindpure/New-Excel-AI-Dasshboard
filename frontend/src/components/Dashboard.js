@@ -37,7 +37,8 @@ import {
   ThunderboltOutlined,
   WarningOutlined,
   ClearOutlined,
-  FullscreenOutlined
+  FullscreenOutlined,
+  BulbOutlined  // ✅ ADD THIS LINE
 } from '@ant-design/icons';
 import ChartContainer from './ChartContainer';
 import FilterSidebar from './FilterSidebar';
@@ -283,7 +284,15 @@ const ChartInsightsContent = ({ chart, sessionId, activeFilters, dataLimit, isDa
   );
 };
 
-const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDarkMode }) => {
+const Dashboard = ({ 
+  sessionId, 
+  fileInfo, 
+  userContext,  // ✅ This is already present - just verify it's here
+  onBack, 
+  onNewFile, 
+  onToggleTheme, 
+  isDarkMode 
+}) => { 
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
@@ -391,8 +400,18 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
       // Use default data limit for initial load if large dataset
       const initialDataLimit = fileInfo?.isLargeDataset ? 1000 : null;
       
-      // Use modified generateDashboard function with includeCustomCharts parameter
-      const result = await generateDashboard(sessionId, {}, null, null, initialDataLimit, true);
+      // Use modified generateDashboard function with includeCustomCharts parameter// Use modified generateDashboard function with includeCustomCharts parameter
+const result = await generateDashboard(
+  sessionId, 
+  {}, 
+  null, 
+  null, 
+  initialDataLimit, 
+  true,
+  userContext  // ✅ ADD THIS PARAMETER
+);
+
+
       
       setDashboardData(result.dashboard);
       setActiveFilters({});
@@ -427,7 +446,16 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
       setChartsUpdating(true);
       
       // Use the modified generateDashboard function with includeCustomCharts parameter
-      const result = await generateDashboard(sessionId, filters, null, null, newDataLimit, true);
+      // Use the modified generateDashboard function with includeCustomCharts parameter
+const result = await generateDashboard(
+  sessionId, 
+  filters, 
+  null, 
+  null, 
+  newDataLimit, 
+  true,
+  userContext  // ✅ ADD THIS PARAMETER
+);
       
       setDashboardData(prevData => ({
         ...prevData,
@@ -1291,6 +1319,45 @@ const Dashboard = ({ sessionId, fileInfo, onBack, onNewFile, onToggleTheme, isDa
           </div>
         </Space>
       </Header>
+
+      {/* ✅ ADD THIS USER CONTEXT ALERT HERE */}
+      {userContext && (
+        <div style={{ 
+          maxWidth: '1400px', 
+          margin: '16px auto 0', 
+          padding: '0 24px' 
+        }}>
+          <Alert
+            message={
+              <Space>
+                <BulbOutlined />
+                <Text strong>AI Context Active</Text>
+              </Space>
+            }
+            description={
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Text style={{ fontSize: '13px' }}>
+                  Dashboard tailored based on your requirements:
+                </Text>
+                <div style={{ 
+                  background: isDarkMode ? '#141414' : '#f5f5f5',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  marginTop: '8px'
+                }}>
+                  <Text italic style={{ fontSize: '12px', whiteSpace: 'pre-wrap' }}>
+                    "{userContext}"
+                  </Text>
+                </div>
+              </Space>
+            }
+            type="info"
+            closable
+            style={{ marginBottom: '0' }}
+            icon={<ThunderboltOutlined />}
+          />
+        </div>
+      )}
 
       {/* Content */}
       <Content style={{ padding: '24px', overflow: 'auto' }}>
