@@ -1,82 +1,61 @@
-// backend/routes/api.js - Enhanced for large dataset performance
+// backend/routes/api.js - COMPLETE FIXED VERSION
 const express = require('express');
 const router = express.Router();
 
 // Import services
-let upload, dataProcessor, aiService, calculator;
+let upload, dataProcessor, aiService, calculator, dataValidator, helpers;
 
 try {
   upload = require('../middleware/upload');
   dataProcessor = require('../services/dataProcessor');
   aiService = require('../services/aiService');
   calculator = require('../services/calculator');
+  dataValidator = require('../services/dataValidator');
+  helpers = require('../utils/helpers');
   console.log('✅ All services loaded successfully');
 } catch (error) {
-  console.log('⚠️ Some services not found, using basic routes only');
+  console.error('⚠️ Service loading error:', error.message);
 }
 
-// Store sessions in memory (use Redis in production)
+// Single session store
 const sessions = new Map();
 
-// Middleware to clean up old sessions periodically
+// Cleanup old sessions every hour
 setInterval(() => {
-  const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-  
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
   for (const [sessionId, sessionData] of sessions.entries()) {
-    if (now - new Date(sessionData.uploadTime).getTime() > maxAge) {
+    if (new Date(sessionData.uploadedAt).getTime() < oneHourAgo) {
       sessions.delete(sessionId);
       console.log(`🗑️ Cleaned up expired session: ${sessionId}`);
     }
   }
   
-  // Also clear calculator cache to prevent memory leaks
   if (calculator) {
     calculator.clearCache();
   }
-}, 60 * 60 * 1000); // Clean up every hour
+}, 60 * 60 * 1000);
 
 // Test route
 router.get('/test', (req, res) => {
   res.json({
     success: true,
-    message: 'API is working perfectly!',
+    message: 'API is working!',
     timestamp: new Date().toISOString(),
-    availableEndpoints: [
-      'GET /api/test',
-      'POST /api/upload',
-      'GET /api/session/:sessionId',
-      'POST /api/generate-dashboard',
-      'GET /api/data-limit-options'
-    ]
+    services: {
+      upload: !!upload,
+      dataProcessor: !!dataProcessor,
+      aiService: !!aiService,
+      calculator: !!calculator,
+      dataValidator: !!dataValidator,
+      helpers: !!helpers
+    }
   });
 });
 
-// Get data limit options for large datasets
-router.get('/data-limit-options', (req, res) => {
-  try {
-    const options = calculator ? calculator.getDataLimitOptions() : [
-      { label: 'Top 50 Records', value: 50 },
-      { label: 'Top 100 Records', value: 100 },
-      { label: 'Top 1,000 Records', value: 1000 },
-      { label: 'All Data', value: null }
-    ];
-
-    res.json({
-      success: true,
-      options
-    });
-  } catch (error) {
-    console.error('❌ Data limit options error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error getting data limit options'
-    });
-  }
-});
-
-// File upload and initial processing
-if (upload && dataProcessor) {
+// ============================================
+// FILE UPLOAD ROUTE
+// ============================================
+if (upload && dataProcessor && dataValidator && helpers) {
   router.post('/upload', upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
@@ -86,46 +65,76 @@ if (upload && dataProcessor) {
         });
       }
 
-      console.log('📁 Processing uploaded file:', req.file.originalname);
+      console.log('📁 File uploaded:', req.file.originalname);
 
-      // Process the file with optimizations
-      const result = await dataProcessor.processFile(req.file);
+      // Step 1: Process file
+      const processedData = await dataProcessor.processFile(req.file);
+      console.log('✅ File processed successfully');
+
+      // Step 2: Validate data
+      console.log('🔍 Running validation...');
+      const validationResult = await dataValidator.validateData(
+        processedData.data,
+        processedData.schema
+      );
+      console.log('✅ Validation complete:', validationResult.overallStatus);
+
+      // Step 3: Generate session ID and store
+      const sessionId = helpers.generateSessionId();
       
-      // Create session
-      const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      
-      // Store in session with performance metadata
       sessions.set(sessionId, {
-        ...result,
-        fileName: req.file.originalname,
+        data: processedData.data,
+        schema: processedData.schema,
+        stats: processedData.stats,
+        sampleData: processedData.sampleData,
+        fullDataCount: processedData.data.length,
+        validationResult,
+        uploadedAt: new Date().toISOString(),
         uploadTime: new Date().toISOString(),
-        performance: {
-          isLargeDataset: result.stats.isLargeDataset,
-          recommendedDataLimit: result.stats.isLargeDataset ? 1000 : null
-        }
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+        customCharts: []
       });
 
-      console.log(`✅ File processed successfully. Session ID: ${sessionId}, Rows: ${result.stats.totalRows}`);
+      console.log(`💾 Session created: ${sessionId} (${sessions.size} total sessions)`);
+
+      // Step 4: Create preview
+      const preview = {
+        fileName: req.file.originalname,
+        fileSize: helpers.formatBytes(req.file.size),
+        totalRows: processedData.stats.totalRows,
+        totalColumns: processedData.stats.totalColumns,
+        measures: processedData.schema.measures.length,
+        dimensions: processedData.schema.dimensions.length,
+        validation: {
+          status: validationResult.overallStatus,
+          isReady: validationResult.isReadyForDashboard,
+          issueCount: validationResult.summary.totalIssues
+        }
+      };
 
       res.json({
         success: true,
         sessionId,
-        message: 'File processed successfully',
-        preview: {
-          fileName: req.file.originalname,
-          rowCount: result.fullDataCount || result.data.length,
-          columns: result.schema.columns.length,
-          schema: result.schema,
-          isLargeDataset: result.stats.isLargeDataset,
-          recommendedDataLimit: result.stats.isLargeDataset ? 1000 : null
-        }
+        preview,
+        validationResult
       });
 
     } catch (error) {
-      console.error('❌ Upload error:', error);
+      console.error('❌ Upload/validation error:', error);
+      
+      if (req.file && req.file.path) {
+        const fs = require('fs');
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (cleanupError) {
+          console.warn('Could not cleanup file:', cleanupError.message);
+        }
+      }
+
       res.status(500).json({
         success: false,
-        message: 'Error processing file: ' + error.message
+        message: error.message || 'Upload processing failed'
       });
     }
   });
@@ -133,35 +142,43 @@ if (upload && dataProcessor) {
   router.post('/upload', (req, res) => {
     res.status(501).json({
       success: false,
-      message: 'Upload service not available. Please check if all files are properly set up.'
+      message: 'Upload service not available - missing required services'
     });
   });
 }
 
-// Get session data
+// ============================================
+// GET SESSION DATA
+// ============================================
 router.get('/session/:sessionId', (req, res) => {
   try {
     const { sessionId } = req.params;
+    
+    console.log(`📊 Fetching session: ${sessionId}`);
+    
     const sessionData = sessions.get(sessionId);
 
     if (!sessionData) {
+      console.error(`❌ Session not found: ${sessionId}`);
+      console.log(`Available sessions: ${Array.from(sessions.keys()).join(', ')}`);
       return res.status(404).json({
         success: false,
-        message: 'Session not found'
+        message: 'Session not found or expired'
       });
     }
 
-    // Don't send full data in session response for performance
-    const responseData = {
-      ...sessionData,
-      data: undefined, // Remove full data
-      dataPreview: sessionData.data.slice(0, 10), // Send small preview
-      fullDataCount: sessionData.fullDataCount || sessionData.data.length
-    };
+    console.log(`✅ Session found: ${sessionId}`);
 
     res.json({
       success: true,
-      data: responseData
+      data: {
+        schema: sessionData.schema,
+        stats: sessionData.stats,
+        fileName: sessionData.fileName,
+        uploadedAt: sessionData.uploadedAt,
+        validationResult: sessionData.validationResult,
+        fullDataCount: sessionData.fullDataCount
+      }
     });
 
   } catch (error) {
@@ -173,145 +190,97 @@ router.get('/session/:sessionId', (req, res) => {
   }
 });
 
-// Generate AI suggestions for charts with data limits
-if (aiService) {
-  router.post('/suggest-charts', async (req, res) => {
+// ============================================
+// GENERATE DASHBOARD (Main route)
+// ============================================
+if (aiService && calculator) {
+  router.post('/generate-dashboard', async (req, res) => {
     try {
-      const { sessionId, customFilters, dataLimit } = req.body;
+      // ✅ CHANGE 1: Extract userContext from request body
+      const { sessionId, filters = {}, dataLimit = null, userContext = null } = req.body;
+      
+      // ✅ CHANGE 2: Add logging for context
+      if (userContext) {
+        console.log(`📊 Generating dashboard for session: ${sessionId} WITH USER CONTEXT`);
+        console.log(`💬 User Context: "${userContext.substring(0, 100)}${userContext.length > 100 ? '...' : ''}"`);
+      } else {
+        console.log(`📊 Generating dashboard for session: ${sessionId} (automatic analysis)`);
+      }
+      
       const sessionData = sessions.get(sessionId);
-
+  
       if (!sessionData) {
+        console.error(`❌ Session not found: ${sessionId}`);
+        console.log(`Available sessions: ${Array.from(sessions.keys()).join(', ')}`);
         return res.status(404).json({
           success: false,
-          message: 'Session not found'
+          message: 'Session not found or expired'
         });
       }
-
-      console.log(`🤖 Generating suggestions for ${sessionData.data.length} records with limit: ${dataLimit}`);
-
-      // Apply filters first
-      let filteredData = sessionData.data;
-      if (customFilters && Object.keys(customFilters).length > 0 && calculator) {
-        filteredData = calculator.applyFilters(sessionData.data, customFilters, dataLimit);
+  
+      console.log(`Found session with ${sessionData.data.length} rows`);
+  
+      // ✅ CHANGE 3: Store userContext in session data for future use
+      if (userContext) {
+        sessionData.userContext = userContext;
+        sessions.set(sessionId, sessionData);
       }
-
-      // Use sample data for AI analysis instead of full dataset
+  
+      // Apply filters
+      let filteredData = sessionData.data;
+      if (Object.keys(filters).length > 0) {
+        filteredData = calculator.applyFilters(sessionData.data, filters, dataLimit);
+        console.log(`Filtered to ${filteredData.length} rows`);
+      }
+  
+      // Use sample for AI suggestions
       const sampleData = sessionData.sampleData || filteredData.slice(0, 100);
       
-      // Get AI suggestions using sample
-      const suggestions = await aiService.getSuggestions(sessionData.schema, sampleData);
+      // Get AI suggestions
+      console.log('🤖 Getting AI suggestions...');
+      // ✅ CHANGE 4: Pass userContext to AI service
+      const suggestions = await aiService.getSuggestions(
+        sessionData.schema, 
+        sampleData, 
+        userContext  // Pass user context to AI
+      );
 
-      // Calculate KPIs with data limit
-      const kpis = calculator ? 
-        calculator.calculateKPIs(filteredData, sessionData.schema, suggestions.kpis, dataLimit) : 
-        [];
+      // Calculate KPIs
+      console.log('📊 Calculating KPIs...');
+      const kpis = calculator.calculateKPIs(
+        filteredData, 
+        sessionData.schema, 
+        suggestions.kpis, 
+        dataLimit
+      );
       
-      // Generate chart configurations with data limit
-      const charts = calculator ? 
-        calculator.generateChartConfigs(filteredData, sessionData.schema, suggestions.charts, dataLimit) : 
-        [];
+      // Generate charts
+      console.log('📈 Generating charts...');
+      const charts = calculator.generateChartConfigs(
+        filteredData, 
+        sessionData.schema, 
+        suggestions.charts, 
+        dataLimit
+      );
 
-      console.log(`✅ Generated ${kpis.length} KPIs and ${charts.length} charts with data limit: ${dataLimit || 'none'}`);
+      console.log(`✅ Dashboard generated: ${kpis.length} KPIs, ${charts.length} charts`);
 
       res.json({
         success: true,
-        suggestions: {
-          kpis,
-          charts,
-          insights: suggestions.insights || []
-        },
-        performance: {
+        kpis,
+        charts,
+        insights: suggestions.insights || [],
+        performanceInfo: {
           totalRecords: sessionData.data.length,
           filteredRecords: filteredData.length,
           displayedRecords: dataLimit ? Math.min(dataLimit, filteredData.length) : filteredData.length,
-          isLimited: dataLimit && filteredData.length > dataLimit
+          isLargeDataset: sessionData.stats?.isLargeDataset || false,
+          dataLimitApplied: dataLimit !== null
         }
       });
 
     } catch (error) {
-      console.error('❌ Suggestions error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error generating suggestions: ' + error.message
-      });
-    }
-  });
-} else {
-  router.post('/suggest-charts', (req, res) => {
-    res.status(501).json({
-      success: false,
-      message: 'AI service not available'
-    });
-  });
-}
-
-// Generate final dashboard with filters and data limits
-if (calculator && aiService) {
-  router.post('/generate-dashboard', async (req, res) => {
-    try {
-      const { sessionId, filters = {}, selectedMeasures, selectedDimensions, dataLimit } = req.body;
-      const sessionData = sessions.get(sessionId);
-
-      if (!sessionData) {
-        return res.status(404).json({
-          success: false,
-          message: 'Session not found'
-        });
-      }
-
-      console.log(`📊 Generating dashboard with filters and data limit: ${dataLimit}`);
-
-      // Apply filters with data limit for performance
-      let filteredData = calculator.applyFilters(sessionData.data, filters, dataLimit);
-
-      // Use sample for AI analysis
-      const sampleData = sessionData.sampleData || filteredData.slice(0, 100);
-      
-      // Get suggestions using sample data
-      const suggestions = await aiService.getSuggestions(sessionData.schema, sampleData);
-
-      // Calculate filtered KPIs with data limit
-      const kpis = calculator.calculateKPIs(filteredData, sessionData.schema, suggestions.kpis, dataLimit);
-
-      // Generate filtered charts
-      let chartConfigs = suggestions.charts;
-      if (selectedMeasures || selectedDimensions) {
-        chartConfigs = [{
-          title: 'Custom Chart',
-          type: 'bar',
-          measures: selectedMeasures || [sessionData.schema.measures[0]?.name],
-          dimensions: selectedDimensions || [sessionData.schema.dimensions[0]?.name]
-        }];
-      }
-
-      const charts = calculator.generateChartConfigs(filteredData, sessionData.schema, chartConfigs, dataLimit);
-
-      // Get filter options with sampling for large datasets
-      const filterOptions = calculator.getFilterOptions(sessionData.data, sessionData.schema);
-
-      console.log(`✅ Dashboard generated with ${charts.length} charts and ${kpis.length} KPIs`);
-
-      res.json({
-        success: true,
-        dashboard: {
-          kpis,
-          charts,
-          filterOptions,
-          activeFilters: filters,
-          dataCount: filteredData.length,
-          totalCount: sessionData.data.length,
-          isLimited: dataLimit && filteredData.length > dataLimit,
-          performance: {
-            dataLimit: dataLimit,
-            totalRecords: sessionData.data.length,
-            displayedRecords: dataLimit ? Math.min(dataLimit, filteredData.length) : filteredData.length,
-            isLargeDataset: sessionData.stats?.isLargeDataset || false
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ Dashboard generation error:', error);
+      console.error('❌ Generate dashboard error:', error);
       res.status(500).json({
         success: false,
         message: 'Error generating dashboard: ' + error.message
@@ -322,268 +291,131 @@ if (calculator && aiService) {
   router.post('/generate-dashboard', (req, res) => {
     res.status(501).json({
       success: false,
-      message: 'Dashboard service not available'
+      message: 'Dashboard generation service not available - AI or Calculator service missing'
     });
   });
 }
 
-// Get custom chart combinations with performance optimization
-router.post('/custom-chart-combinations', async (req, res) => {
-  try {
-    const { sessionId, selectedMeasures, selectedDimensions, activeFilters, dataLimit } = req.body;
-    const sessionData = sessions.get(sessionId);
-
-    if (!sessionData) {
-      return res.status(404).json({
-        success: false,
-        message: 'Session not found'
-      });
-    }
-
-    console.log(`🎨 Generating custom chart combinations with data limit: ${dataLimit}`);
-
-    // Apply filters to data with limit
-    let filteredData = sessionData.data;
-    if (activeFilters && Object.keys(activeFilters).length > 0) {
-      filteredData = calculator.applyFilters(sessionData.data, activeFilters, dataLimit);
-    } else if (dataLimit) {
-      filteredData = sessionData.data.slice(0, dataLimit);
-    }
-
-    // Get AI-powered chart combinations using sample
-    const sampleSize = Math.min(filteredData.length, 1000);
-    const sampleData = filteredData.slice(0, sampleSize);
-    
-    const combinations = await aiService.getCustomChartCombinations(
-      sessionData.schema,
-      selectedMeasures,
-      selectedDimensions,
-      sampleData
-    );
-
-    console.log(`✅ Generated ${combinations.length} chart combinations`);
-
-    res.json({
-      success: true,
-      combinations,
-      performance: {
-        totalRecords: sessionData.data.length,
-        filteredRecords: filteredData.length,
-        displayedRecords: Math.min(sampleSize, filteredData.length),
-        isLimited: dataLimit && filteredData.length > dataLimit
+// ============================================
+// GENERATE DASHBOARD WITH CUSTOM CHARTS
+// ============================================
+if (aiService && calculator) {
+  router.post('/generate-dashboard-with-custom', async (req, res) => {
+    try {
+      // ✅ CHANGE 1: Extract userContext from request body
+      const { sessionId, filters = {}, includeCustomCharts = true, dataLimit, userContext = null } = req.body;
+      
+      // ✅ CHANGE 2: Add logging for context
+      if (userContext) {
+        console.log(`📊 Generating dashboard with custom charts for session: ${sessionId} WITH USER CONTEXT`);
+        console.log(`💬 User Context: "${userContext.substring(0, 100)}${userContext.length > 100 ? '...' : ''}"`);
+      } else {
+        console.log(`📊 Generating dashboard with custom charts for session: ${sessionId} (automatic analysis)`);
       }
-    });
-
-  } catch (error) {
-    console.error('❌ Custom chart combinations error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error generating chart combinations: ' + error.message
-    });
-  }
-});
-
-// Add custom chart to dashboard with data limits
-router.post('/add-custom-chart', async (req, res) => {
-  try {
-    const { sessionId, chartCombination, activeFilters, dataLimit } = req.body;
-    const sessionData = sessions.get(sessionId);
-
-    if (!sessionData) {
-      return res.status(404).json({
-        success: false,
-        message: 'Session not found'
-      });
-    }
-
-    console.log(`➕ Adding custom chart with data limit: ${dataLimit}`);
-
-    // Apply filters to data with limit
-    let filteredData = sessionData.data;
-    if (activeFilters && Object.keys(activeFilters).length > 0) {
-      filteredData = calculator.applyFilters(sessionData.data, activeFilters, dataLimit);
-    } else if (dataLimit) {
-      filteredData = sessionData.data.slice(0, dataLimit);
-    }
-
-    // Generate chart configuration with data limit
-    const chartConfig = calculator.generateSingleChartConfig(
-      filteredData,
-      sessionData.schema,
-      chartCombination,
-      dataLimit
-    );
-
-    // Add to session's custom charts
-    if (!sessionData.customCharts) {
-      sessionData.customCharts = [];
-    }
-    
-    const newChart = {
-      ...chartConfig,
-      id: `custom_chart_${Date.now()}`,
-      isCustom: true,
-      addedAt: new Date().toISOString()
-    };
-    
-    sessionData.customCharts.push(newChart);
-    sessions.set(sessionId, sessionData);
-
-    console.log('✅ Custom chart added successfully');
-
-    res.json({
-      success: true,
-      chart: newChart,
-      message: 'Custom chart added to dashboard',
-      performance: {
-        dataLimit: dataLimit,
-        chartDataPoints: newChart.dataPoints,
-        isLimited: newChart.isLimited
+      
+      const sessionData = sessions.get(sessionId);
+  
+      if (!sessionData) {
+        console.error(`❌ Session not found: ${sessionId}`);
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found or expired'
+        });
       }
-    });
+  
+      // ✅ CHANGE 3: Store userContext in session data
+      if (userContext) {
+        sessionData.userContext = userContext;
+        sessions.set(sessionId, sessionData);
+      }
+  
+      // Apply filters with data limit
+      let filteredData = calculator.applyFilters(sessionData.data, filters, dataLimit);
+  
+      // Use sample for AI suggestions
+      const sampleData = sessionData.sampleData || filteredData.slice(0, 100);
+      
+      // Get AI suggestions for default charts
+      // ✅ CHANGE 4: Pass userContext to AI service
+      const suggestions = await aiService.getSuggestions(
+        sessionData.schema, 
+        sampleData, 
+        userContext  // Pass user context to AI
+      );
 
-  } catch (error) {
-    console.error('❌ Add custom chart error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error adding custom chart: ' + error.message
-    });
-  }
-});
+      // Calculate KPIs with data limit
+      const kpis = calculator.calculateKPIs(filteredData, sessionData.schema, suggestions.kpis, dataLimit);
 
-// Get dashboard with custom charts and data limits
-router.post('/generate-dashboard-with-custom', async (req, res) => {
-  try {
-    const { sessionId, filters = {}, includeCustomCharts = true, dataLimit } = req.body;
-    const sessionData = sessions.get(sessionId);
+      // Generate default charts with data limit
+      const defaultCharts = calculator.generateChartConfigs(filteredData, sessionData.schema, suggestions.charts, dataLimit);
 
-    if (!sessionData) {
-      return res.status(404).json({
-        success: false,
-        message: 'Session not found'
-      });
-    }
+      // Include custom charts if requested
+      let customCharts = [];
+      if (includeCustomCharts && sessionData.customCharts && sessionData.customCharts.length > 0) {
+        console.log(`Including ${sessionData.customCharts.length} custom charts`);
+        customCharts = sessionData.customCharts.map(customChart => {
+          return calculator.generateSingleChartConfig(
+            filteredData,
+            sessionData.schema,
+            customChart,
+            dataLimit
+          );
+        });
+      }
 
-    console.log(`📊 Generating dashboard with custom charts and data limit: ${dataLimit}`);
+      // Combine all charts
+      const allCharts = [...defaultCharts, ...customCharts];
 
-    // Apply filters with data limit
-    let filteredData = calculator.applyFilters(sessionData.data, filters, dataLimit);
+      // Get filter options
+      const filterOptions = calculator.getFilterOptions(sessionData.data, sessionData.schema);
 
-    // Use sample for AI suggestions
-    const sampleData = sessionData.sampleData || filteredData.slice(0, 100);
-    
-    // Get AI suggestions for default charts
-    const suggestions = await aiService.getSuggestions(sessionData.schema, sampleData);
+      console.log(`✅ Generated: ${kpis.length} KPIs, ${defaultCharts.length} default + ${customCharts.length} custom charts`);
 
-    // Calculate KPIs with data limit
-    const kpis = calculator.calculateKPIs(filteredData, sessionData.schema, suggestions.kpis, dataLimit);
-
-    // Generate default charts with data limit
-    const defaultCharts = calculator.generateChartConfigs(filteredData, sessionData.schema, suggestions.charts, dataLimit);
-
-    // Include custom charts if requested
-    let customCharts = [];
-    if (includeCustomCharts && sessionData.customCharts) {
-      customCharts = sessionData.customCharts.map(customChart => {
-        return calculator.generateSingleChartConfig(
-          filteredData,
-          sessionData.schema,
-          customChart,
-          dataLimit
-        );
-      });
-    }
-
-    // Combine all charts
-    const allCharts = [...defaultCharts, ...customCharts];
-
-    // Get filter options
-    const filterOptions = calculator.getFilterOptions(sessionData.data, sessionData.schema);
-
-    res.json({
-      success: true,
-      dashboard: {
-        kpis,
-        charts: allCharts,
-        defaultChartsCount: defaultCharts.length,
-        customChartsCount: customCharts.length,
-        filterOptions,
-        activeFilters: filters,
-        dataCount: filteredData.length,
-        totalCount: sessionData.data.length,
-        performance: {
-          dataLimit: dataLimit,
-          totalRecords: sessionData.data.length,
-          displayedRecords: dataLimit ? Math.min(dataLimit, filteredData.length) : filteredData.length,
-          isLimited: dataLimit && filteredData.length > dataLimit,
-          isLargeDataset: sessionData.stats?.isLargeDataset || false
+      res.json({
+        success: true,
+        dashboard: {
+          kpis,
+          charts: allCharts,
+          defaultChartsCount: defaultCharts.length,
+          customChartsCount: customCharts.length,
+          filterOptions,
+          activeFilters: filters,
+          dataCount: filteredData.length,
+          totalCount: sessionData.data.length,
+          performance: {
+            dataLimit: dataLimit,
+            totalRecords: sessionData.data.length,
+            displayedRecords: dataLimit ? Math.min(dataLimit, filteredData.length) : filteredData.length,
+            isLimited: dataLimit && filteredData.length > dataLimit,
+            isLargeDataset: sessionData.stats?.isLargeDataset || false
+          }
         }
-      }
-    });
+      });
 
-  } catch (error) {
-    console.error('❌ Generate dashboard with custom charts error:', error);
-    res.status(500).json({
+    } catch (error) {
+      console.error('❌ Generate dashboard with custom charts error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error generating dashboard: ' + error.message
+      });
+    }
+  });
+} else {
+  router.post('/generate-dashboard-with-custom', (req, res) => {
+    res.status(501).json({
       success: false,
-      message: 'Error generating dashboard: ' + error.message
+      message: 'Dashboard service not available - AI or Calculator missing'
     });
-  }
-});
+  });
+}
 
-// Remove custom chart
-router.delete('/custom-chart/:sessionId/:chartId', async (req, res) => {
-  try {
-    const { sessionId, chartId } = req.params;
-    const sessionData = sessions.get(sessionId);
-
-    if (!sessionData) {
-      return res.status(404).json({
-        success: false,
-        message: 'Session not found'
-      });
-    }
-
-    if (!sessionData.customCharts) {
-      return res.status(404).json({
-        success: false,
-        message: 'No custom charts found'
-      });
-    }
-
-    const initialLength = sessionData.customCharts.length;
-    sessionData.customCharts = sessionData.customCharts.filter(chart => chart.id !== chartId);
-    
-    if (sessionData.customCharts.length === initialLength) {
-      return res.status(404).json({
-        success: false,
-        message: 'Custom chart not found'
-      });
-    }
-
-    sessions.set(sessionId, sessionData);
-
-    console.log('🗑️ Custom chart removed:', chartId);
-
-    res.json({
-      success: true,
-      message: 'Custom chart removed successfully'
-    });
-
-  } catch (error) {
-    console.error('❌ Remove custom chart error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error removing custom chart: ' + error.message
-    });
-  }
-});
-
-// Get available filter options with sampling for large datasets
+// ============================================
+// GET FILTER OPTIONS
+// ============================================
 if (calculator) {
   router.get('/filters/:sessionId', (req, res) => {
     try {
       const { sessionId } = req.params;
-      const { sample = 'true' } = req.query; // Allow disabling sampling
       const sessionData = sessions.get(sessionId);
 
       if (!sessionData) {
@@ -593,24 +425,14 @@ if (calculator) {
         });
       }
 
-      // Use sampling for large datasets by default
-      const useSampling = sample !== 'false' && sessionData.data.length > 10000;
-      const sampleSize = useSampling ? 10000 : sessionData.data.length;
-      
       const filterOptions = calculator.getFilterOptions(
         sessionData.data, 
-        sessionData.schema, 
-        sampleSize
+        sessionData.schema
       );
 
       res.json({
         success: true,
-        filters: filterOptions,
-        metadata: {
-          totalRecords: sessionData.data.length,
-          sampledRecords: sampleSize,
-          isSampled: useSampling
-        }
+        filters: filterOptions
       });
 
     } catch (error) {
@@ -630,33 +452,111 @@ if (calculator) {
   });
 }
 
-// Get all sessions (for debugging)
-router.get('/sessions', (req, res) => {
-  const sessionList = Array.from(sessions.keys()).map(key => {
-    const sessionData = sessions.get(key);
-    return {
-      sessionId: key,
-      fileName: sessionData?.fileName,
-      uploadTime: sessionData?.uploadTime,
-      rowCount: sessionData?.fullDataCount || sessionData?.data?.length || 0,
-      isLargeDataset: sessionData?.stats?.isLargeDataset || false
-    };
+// ============================================
+// CUSTOM CHART COMBINATIONS
+// ============================================
+if (aiService && calculator) {
+  router.post('/custom-chart-combinations', async (req, res) => {
+    try {
+      const { sessionId, selectedMeasures, selectedDimensions, activeFilters } = req.body;
+      const sessionData = sessions.get(sessionId);
+
+      if (!sessionData) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found'
+        });
+      }
+
+      let filteredData = sessionData.data;
+      if (activeFilters && Object.keys(activeFilters).length > 0) {
+        filteredData = calculator.applyFilters(sessionData.data, activeFilters);
+      }
+
+      const combinations = await aiService.getCustomChartCombinations(
+        sessionData.schema,
+        selectedMeasures,
+        selectedDimensions,
+        filteredData
+      );
+
+      res.json({
+        success: true,
+        combinations
+      });
+
+    } catch (error) {
+      console.error('❌ Custom combinations error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error generating combinations: ' + error.message
+      });
+    }
   });
+}
 
-  res.json({
-    success: true,
-    sessions: sessionList,
-    totalSessions: sessionList.length
+// ============================================
+// ADD CUSTOM CHART
+// ============================================
+if (calculator) {
+  router.post('/add-custom-chart', async (req, res) => {
+    try {
+      const { sessionId, chartCombination, activeFilters, dataLimit } = req.body;
+      const sessionData = sessions.get(sessionId);
+
+      if (!sessionData) {
+        return res.status(404).json({
+          success: false,
+          message: 'Session not found'
+        });
+      }
+
+      let filteredData = sessionData.data;
+      if (activeFilters && Object.keys(activeFilters).length > 0) {
+        filteredData = calculator.applyFilters(sessionData.data, activeFilters, dataLimit);
+      }
+
+      const chartConfig = calculator.generateSingleChartConfig(
+        filteredData,
+        sessionData.schema,
+        chartCombination,
+        dataLimit
+      );
+
+      // Store custom chart in session
+      if (!sessionData.customCharts) {
+        sessionData.customCharts = [];
+      }
+      
+      // Mark as custom
+      chartConfig.isCustom = true;
+      
+      sessionData.customCharts.push(chartConfig);
+      sessions.set(sessionId, sessionData);
+
+      console.log(`✅ Custom chart added. Total custom charts: ${sessionData.customCharts.length}`);
+
+      res.json({
+        success: true,
+        chart: chartConfig
+      });
+
+    } catch (error) {
+      console.error('❌ Add custom chart error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error adding custom chart: ' + error.message
+      });
+    }
   });
-});
+}
 
-
-// Add these routes after your existing routes, before the module.exports line
-
-// Chart insights endpoint
+// ============================================
+// CHART INSIGHTS
+// ============================================
 router.post('/chart-insights', async (req, res) => {
   try {
-    const { sessionId, chartConfig, activeFilters, dataLimit } = req.body;
+    const { sessionId, chartConfig } = req.body;
     const sessionData = sessions.get(sessionId);
 
     if (!sessionData) {
@@ -666,9 +566,8 @@ router.post('/chart-insights', async (req, res) => {
       });
     }
 
-    // Simple fallback insights for now (you can enhance this with AI later)
     const insights = {
-      story: `This ${chartConfig.type} chart shows ${chartConfig.measures.join(' and ')} across ${chartConfig.dimensions.join(' and ')}. The visualization helps identify patterns and trends in your data.`,
+      story: `This ${chartConfig.type} chart shows ${chartConfig.measures.join(' and ')} across ${chartConfig.dimensions.join(' and ')}.`,
       keyInsights: [
         `Chart displays ${chartConfig.data?.length || 0} data points`,
         `Primary measure: ${chartConfig.measures[0]}`,
@@ -682,8 +581,7 @@ router.post('/chart-insights', async (req, res) => {
       },
       recommendations: [
         'Consider filtering data for more focused insights',
-        'Try different chart types to explore various perspectives',
-        'Use export feature to share findings with stakeholders'
+        'Try different chart types to explore various perspectives'
       ]
     };
 
@@ -701,10 +599,12 @@ router.post('/chart-insights', async (req, res) => {
   }
 });
 
-// Dashboard story endpoint
+// ============================================
+// DASHBOARD STORY
+// ============================================
 router.post('/dashboard-story', async (req, res) => {
   try {
-    const { sessionId, activeFilters, dataLimit } = req.body;
+    const { sessionId } = req.body;
     const sessionData = sessions.get(sessionId);
 
     if (!sessionData) {
@@ -714,31 +614,20 @@ router.post('/dashboard-story', async (req, res) => {
       });
     }
 
-    // Simple fallback story for now (you can enhance this with AI later)
     const story = {
-      executiveSummary: `This dashboard provides comprehensive insights into your dataset with ${sessionData.data?.length || 0} total records. The analysis reveals key patterns and trends across multiple dimensions.`,
+      executiveSummary: `This dashboard provides comprehensive insights into your dataset with ${sessionData.data?.length || 0} total records.`,
       keyFindings: [
         `Dataset contains ${sessionData.schema?.measures?.length || 0} measurable metrics`,
-        `Data is categorized across ${sessionData.schema?.dimensions?.length || 0} different dimensions`,
-        `Current view shows ${Object.keys(activeFilters).length} active filters`
+        `Data is categorized across ${sessionData.schema?.dimensions?.length || 0} different dimensions`
       ],
       trends: [
         'Data patterns show consistent distribution across categories',
-        'Multiple correlation opportunities exist between measures',
-        'Temporal trends indicate seasonal variations where applicable'
+        'Multiple correlation opportunities exist between measures'
       ],
       recommendations: [
         'Focus on top-performing categories for strategic planning',
-        'Consider time-based analysis for trend identification',
-        'Implement regular monitoring of key performance indicators',
-        'Use filtering to drill down into specific segments'
-      ],
-      performanceMetrics: {
-        totalRecords: sessionData.data?.length || 0,
-        activeFilters: Object.keys(activeFilters).length,
-        dataLimit: dataLimit || 'No limit',
-        chartsGenerated: sessionData.customCharts?.length || 0
-      }
+        'Consider time-based analysis for trend identification'
+      ]
     };
 
     res.json({
@@ -755,19 +644,38 @@ router.post('/dashboard-story', async (req, res) => {
   }
 });
 
-// Clear all sessions (for debugging)
+// ============================================
+// DEBUG ROUTES
+// ============================================
+router.get('/sessions', (req, res) => {
+  const sessionList = Array.from(sessions.keys()).map(key => {
+    const sessionData = sessions.get(key);
+    return {
+      sessionId: key,
+      fileName: sessionData?.fileName,
+      uploadTime: sessionData?.uploadedAt,
+      rowCount: sessionData?.fullDataCount || 0
+    };
+  });
+
+  res.json({
+    success: true,
+    sessions: sessionList,
+    totalSessions: sessionList.length
+  });
+});
+
 router.delete('/sessions', (req, res) => {
   const count = sessions.size;
   sessions.clear();
   
-  // Also clear calculator cache
   if (calculator) {
     calculator.clearCache();
   }
   
   res.json({
     success: true,
-    message: `Cleared ${count} sessions and calculator cache`
+    message: `Cleared ${count} sessions`
   });
 });
 
